@@ -1,20 +1,6 @@
 function Header({ title, subtitle }) {
   return (
-    <header className="flex flex-col gap-4 border-b border-slate-200 bg-white px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
-        <p className="mt-1 text-sm text-slate-600">{subtitle}</p>
-      </div>
-      <div className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
-        <div className="flex size-9 items-center justify-center rounded-full bg-cyan-100 text-sm font-semibold text-cyan-800" aria-hidden="true">
-          AD
-        </div>
-        <div className="text-sm leading-tight">
-          <p className="font-medium text-slate-800">Ana Demo</p>
-          <p className="text-xs text-slate-500">Usuario ficticio</p>
-        </div>
-      </div>
-    </header>
+    <header className="border-b border-slate-200 bg-white px-5 py-4 sm:px-8"><div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"><div><nav aria-label="Ruta de navegación" className="text-xs font-medium text-slate-500">Portal RRHH <span aria-hidden="true" className="px-1">/</span> {title}</nav><h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900">{title}</h1><p className="mt-0.5 text-sm text-slate-500">{subtitle}</p></div><div className="flex flex-col gap-3 sm:flex-row sm:items-center"><label className="relative block sm:w-60"><span className="sr-only">Búsqueda no disponible</span><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true">⌕</span><input disabled placeholder="Búsqueda próximamente" className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-400 placeholder:text-slate-400 disabled:cursor-not-allowed" /></label><div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5"><div className="flex size-8 items-center justify-center rounded-full bg-violet-100 text-xs font-semibold text-violet-700" aria-hidden="true">AD</div><div className="pr-1 text-sm leading-tight"><p className="font-medium text-slate-700">Ana Demo</p><p className="text-xs text-slate-500">Usuario ficticio</p></div></div></div></div></header>
   )
 }
 

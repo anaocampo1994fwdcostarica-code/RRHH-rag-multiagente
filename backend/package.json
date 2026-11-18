@@ -5,12 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test",
+    "test:rls-integration": "node scripts/run-rls-integration.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
-    "helmet": "^8.1.0"
+    "helmet": "^8.1.0",
+    "pg": "^8.23.1"
   }
 }

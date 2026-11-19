@@ -90,6 +90,17 @@ Entorno validado: proyecto Supabase de pruebas `bxtetlzjlgoezxcjhdrw`, conexión
 | Anonymous user cannot read document chunks | `anon` no puede consultar fragmentos documentales (`42501`). |
 | Anonymous user cannot read audit log | `anon` no puede consultar auditoría (`42501`). |
 
+## Cierre de ejecución: 19 de noviembre de 2026
+
+Tras aplicar `20261119091000` (RRHH solo revisa solicitudes ya enviadas: `submitted → in_review → approved/rejected`), el fixture de RRHH se crea en `submitted` y la transición cambia solo `status`. El reporte `rls-report-2026-11-19T19-21-31-321Z.json` finalizó con **18 pruebas aprobadas y 0 fallidas** y `rollbackCompleted: true`.
+
+| Prueba | Comportamiento verificado |
+| --- | --- |
+| HR cannot move a draft request to in_review | RRHH no puede saltarse el envío del colaborador: `42501` con el mensaje `Administrative leave request transition is not permitted.` |
+| HR can read employees and review a submitted request | RRHH lee ambos empleados de prueba y pasa una solicitud `submitted` a `in_review` cambiando solo `status` (sustituye a "HR can read employees and manage request"). |
+
+Las demás pruebas son las de la tabla del 18 de noviembre.
+
 ### Evidencia de transacciones
 
 El reporte registra `rollbackCompleted: true`, lo que confirma que el ejecutor recibió una respuesta satisfactoria al `ROLLBACK` final. Además, el código ejecuta ese `ROLLBACK` dentro de `finally`, por lo que lo intenta aun cuando una prueba falla. Cada operación que espera un error se aísla ahora con `SAVEPOINT`, `ROLLBACK TO SAVEPOINT` y `RELEASE SAVEPOINT` para evitar que un `42501` deje abortada la transacción principal.

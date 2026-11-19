@@ -91,7 +91,8 @@ function createRecorder() {
   }
 }
 
-async function expectBlocked(client, name, callback, recorder) {
+// expectedMessage (opcional): además del SQLSTATE, exige el mensaje exacto para documentar qué regla bloqueó.
+async function expectBlocked(client, name, callback, recorder, { expectedMessage } = {}) {
   await client.query('SAVEPOINT expected_error_case')
   let operationError
 
@@ -114,7 +115,9 @@ async function expectBlocked(client, name, callback, recorder) {
     throw new Error(`Could not recover the transaction after ${name}.`, { cause: recoveryError })
   }
 
-  if (operationError.code === '42501' || operationError.code === '0A000') recorder.pass(name, { sqlState: operationError.code })
+  const expectedCode = operationError.code === '42501' || operationError.code === '0A000'
+  const expectedText = !expectedMessage || operationError.message === expectedMessage
+  if (expectedCode && expectedText) recorder.pass(name, { sqlState: operationError.code, ...(expectedMessage && { message: operationError.message }) })
   else recorder.fail(name, operationError)
 }
 
@@ -156,9 +159,16 @@ async function createTransientFixtures(client, users) {
     'insert into public.leave_types (code, name) values ($1, $2) returning id',
     [leaveTypeCode, `RLS test permission ${suffix}`],
   )
+  // 20261119091000: RRHH solo revisa solicitudes ya enviadas (submitted → in_review → approved/rejected).
   const { rows: [request] } = await client.query(`
+    insert into public.leave_requests (employee_id, leave_type_id, start_date, end_date, status, submitted_at)
+    values ($1, $2, current_date + 10, current_date + 11, 'submitted', now())
+    returning id
+  `, [users.employeeB.employee_id, leaveType.id])
+  // Borrador para documentar que RRHH no puede saltarse el envío del colaborador.
+  const { rows: [draftRequest] } = await client.query(`
     insert into public.leave_requests (employee_id, leave_type_id, start_date, end_date, status)
-    values ($1, $2, current_date + 10, current_date + 11, 'draft')
+    values ($1, $2, current_date + 12, current_date + 13, 'draft')
     returning id
   `, [users.employeeB.employee_id, leaveType.id])
   const { rows: [conversation] } = await client.query(
@@ -186,7 +196,7 @@ async function createTransientFixtures(client, users) {
     limit 1
   `, [users.employeeA.profile_id])
   assert(availableRole.rowCount === 1, 'No role is available for the administrator assignment test.')
-  return { leaveTypeId: leaveType.id, requestId: request.id, conversationId: conversation.id, adminRoleId: roleIds.admin, assignmentRoleId: availableRole.rows[0].id }
+  return { leaveTypeId: leaveType.id, requestId: request.id, draftRequestId: draftRequest.id, conversationId: conversation.id, adminRoleId: roleIds.admin, assignmentRoleId: availableRole.rows[0].id }
 }
 
 async function executeTests(client, users, fixtures, recorder) {
@@ -249,9 +259,17 @@ async function executeTests(client, users, fixtures, recorder) {
   await runAs(client, 'authenticated', users.hr.user_id, async () => {
     const employees = await client.query("select employee_code from public.employees where employee_code in ('RLS-TEST-EMP-A', 'RLS-TEST-EMP-B')")
     assert(employees.rowCount === 2, 'HR cannot read both test employees.')
-    const update = await client.query("update public.leave_requests set status = 'in_review', submitted_at = now() where id = $1", [fixtures.requestId])
-    assert(update.rowCount === 1, 'HR could not update the request.')
-    recorder.pass('HR can read employees and manage request', { employeeRows: employees.rowCount, updatedRows: update.rowCount })
+
+    // Regla de la 20261119091000: un borrador no puede pasar a revisión sin que el colaborador lo envíe.
+    await expectBlocked(client, 'HR cannot move a draft request to in_review', () => client.query(
+      "update public.leave_requests set status = 'in_review' where id = $1",
+      [fixtures.draftRequestId],
+    ), recorder, { expectedMessage: 'Administrative leave request transition is not permitted.' })
+
+    // Transición permitida: solo cambia status; el trigger conserva submitted_at y demás columnas.
+    const update = await client.query("update public.leave_requests set status = 'in_review' where id = $1 returning status", [fixtures.requestId])
+    assert(update.rowCount === 1 && update.rows[0].status === 'in_review', 'HR could not move the submitted request to in_review.')
+    recorder.pass('HR can read employees and review a submitted request', { employeeRows: employees.rowCount, updatedRows: update.rowCount })
   })
 
   await runAs(client, 'authenticated', users.admin.user_id, async () => {

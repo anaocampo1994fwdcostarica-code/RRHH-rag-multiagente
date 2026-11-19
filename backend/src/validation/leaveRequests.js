@@ -61,6 +61,8 @@ export function parseCreateLeaveRequestBody(body) {
 
   let reason = null
   if (body.reason !== undefined && body.reason !== null) {
+    // Rechazar caracteres de control es intencional: la regex los busca a propósito.
+    // eslint-disable-next-line no-control-regex
     if (typeof body.reason !== 'string' || body.reason.length > 1000 || /[\u0000-\u001F\u007F]/.test(body.reason)) {
       throw createHttpError(400, 'reason has an invalid format.')
     }

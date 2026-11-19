@@ -47,21 +47,28 @@ test('the policy agent does not generate a supported answer without retrieved ev
   assert.equal(generateCalls, 0)
 })
 
-test('the orchestrator invokes RAG only for policy intent and blocks restricted or mixed prompts', async () => {
+const offlineDeps = {
+  conversations: { getRecentMessages: async () => [], createConversation: async () => 'conversation-1', appendUserMessage: async () => {} },
+  resolveIsHr: async () => false,
+}
+const classifierFor = (intent) => ({ classify: async (question) => ({ intent, subqueries: {}, reformulated: question }) })
+
+test('the orchestrator invokes RAG for policy intent and blocks third-party prompts before classifying', async () => {
   let calls = 0
-  const orchestrator = createOrchestrator({ policyAgent: { answer: async () => { calls += 1; return { evidenceStatus: 'supported', answer: 'Respuesta', citations: [] } } } })
+  let classified = 0
+  const classifier = { classify: async (question) => { classified += 1; return { intent: 'policy', subqueries: {}, reformulated: question } } }
+  const orchestrator = createOrchestrator({ ...offlineDeps, classifier, policyAgent: { answer: async () => { calls += 1; return { evidenceStatus: 'supported', answer: 'Respuesta', citations: [{ documentId: 'd1' }] } } } })
   const policy = await orchestrator.answer(auth, 'política de vacaciones')
   const restricted = await orchestrator.answer(auth, 'mi compañero gana cuánto')
-  const mixed = await orchestrator.answer(auth, 'mis vacaciones y la política de vacaciones')
   assert.equal(policy.agent, 'policy_rag')
   assert.equal(policy.evidenceStatus, 'supported')
   assert.equal(restricted.evidenceStatus, 'restricted')
-  assert.equal(mixed.evidenceStatus, 'restricted')
   assert.equal(calls, 1)
+  assert.equal(classified, 1)
 })
 
 test('the orchestrator maps provider errors to unavailable without leaking provider details', async () => {
-  const orchestrator = createOrchestrator({ policyAgent: { answer: async () => { throw new Error('provider secret detail') } } })
+  const orchestrator = createOrchestrator({ ...offlineDeps, classifier: classifierFor('policy'), policyAgent: { answer: async () => { throw new Error('provider secret detail') } } })
   const response = await orchestrator.answer(auth, 'horario de trabajo')
   assert.equal(response.evidenceStatus, 'unavailable')
   assert.equal(response.answer.includes('secret'), false)
@@ -85,6 +92,7 @@ test('the Gemini provider validates 768 dimensions with an injected local client
   })
   assert.equal((await provider.embed('texto')).length, 768)
   assert.equal(await provider.generate('pregunta'), 'Texto local')
+  assert.equal(await provider.generateJson('pregunta', { schema: {} }), 'Texto local')
 })
 
 test('the chat controller requires a bounded question and forwards verified identity to its injected orchestrator', async () => {
@@ -95,8 +103,13 @@ test('the chat controller requires a bounded question and forwards verified iden
   assert.equal(response.statusCode, 200)
   assert.equal(received[0], auth)
   assert.equal(received[1], 'política de horarios')
+  assert.deepEqual(received[2], { conversationId: undefined })
 
   let error
   await controller({ body: { question: '' }, auth }, createResponse(), (nextError) => { error = nextError })
   assert.equal(error.statusCode, 400)
+
+  let conversationError
+  await controller({ body: { question: 'hola', conversationId: 'no-es-uuid' }, auth }, createResponse(), (nextError) => { conversationError = nextError })
+  assert.equal(conversationError.statusCode, 400)
 })

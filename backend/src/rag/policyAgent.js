@@ -16,7 +16,8 @@ export function createPolicyAgent({ embeddings, vectors, llm }) {
       const embedding = await embeddings.embed(question)
       const chunks = await vectors.search(auth, embedding)
       if (!Array.isArray(chunks) || chunks.length === 0) {
-        return { evidenceStatus: 'insufficient', answer: 'No se encontró evidencia documental suficiente para responder esta consulta.', citations: [] }
+        // Similitud por debajo del umbral del RPC: no se inventa la política y se ofrece escalar.
+        return { evidenceStatus: 'insufficient', escalationOffered: true, answer: 'No encontré una política que responda esta consulta en los documentos publicados. ¿Quieres que la escale a RRHH?', citations: [] }
       }
 
       const context = chunks.map((chunk, index) => `[${index + 1}] ${chunk.content}`).join('\n\n')

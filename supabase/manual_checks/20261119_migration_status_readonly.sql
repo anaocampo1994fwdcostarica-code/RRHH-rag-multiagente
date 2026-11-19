@@ -1,0 +1,152 @@
+-- SOLO LECTURA. Ejecutar en el SQL Editor del proyecto Supabase de PRUEBAS.
+-- Las migraciones aplicadas a mano desde el SQL Editor NO quedan registradas en
+-- supabase_migrations.schema_migrations; este archivo verifica su estado por los objetos que crean.
+--
+-- Resultado: una fila por migración.
+--   estado = 'aplicada'    → existen todos sus objetos.
+--   estado = 'PARCIAL'     → existen algunos: NO volver a ejecutar la migración tal cual; ver la guía.
+--   estado = 'no aplicada' → no existe ninguno.
+-- Los componentes que empiezan por 'dato:' son condiciones de datos: cuentan para 'aplicada', no para 'PARCIAL'.
+-- La fila "entorno" es informativa (aplicada = null).
+-- No usa casts ::regclass ni ::regprocedure sobre objetos opcionales, para no fallar si faltan.
+
+with checks(ord, migration, component, ok, marker) as (
+  -- 20261119090000: crea la función guarda, el trigger y la política de envío del colaborador.
+  select 1, '20261119090000_allow_employee_draft_submission', c.component, c.ok, c.component not like 'dato:%' from (values
+    ('funcion public.guard_employee_leave_request_submission',
+      exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'guard_employee_leave_request_submission')),
+    ('trigger leave_requests_guard_employee_submission',
+      exists (select 1 from pg_trigger t
+              where t.tgrelid = 'public.leave_requests'::regclass
+                and t.tgname = 'leave_requests_guard_employee_submission' and not t.tgisinternal)),
+    ('policy requests_update_own_draft_to_submitted',
+      exists (select 1 from pg_policies
+              where schemaname = 'public' and tablename = 'leave_requests'
+                and policyname = 'requests_update_own_draft_to_submitted'))
+  ) as c(component, ok)
+
+  union all
+  -- 20261119091000: reemplaza el cuerpo de la misma función; se reconoce por texto exclusivo.
+  select 2, '20261119091000_guard_administrative_leave_request_transitions', c.component, c.ok, c.component not like 'dato:%' from (values
+    ('funcion con mensaje exclusivo de 091000',
+      exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'guard_employee_leave_request_submission'
+                and p.prosrc like '%Administrative leave request transition is not permitted.%')),
+    ('funcion con transiciones submitted -> in_review -> approved/rejected',
+      exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'guard_employee_leave_request_submission'
+                and p.prosrc like '%old.status = ''in_review'' and new.status in (''approved'', ''rejected'')%'))
+  ) as c(component, ok)
+
+  union all
+  -- 20261119100000: pgvector, columna section, tabla de embeddings, índice, RLS, política y RPC.
+  select 3, '20261119100000_add_policy_rag_pgvector', c.component, c.ok, c.component not like 'dato:%' from (values
+    ('extension vector instalada',
+      exists (select 1 from pg_extension where extname = 'vector')),
+    ('columna document_chunks.section',
+      exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'document_chunks' and column_name = 'section')),
+    ('tabla public.document_chunk_embeddings',
+      to_regclass('public.document_chunk_embeddings') is not null),
+    ('indice document_chunk_embeddings_embedding_idx',
+      to_regclass('public.document_chunk_embeddings_embedding_idx') is not null),
+    ('RLS habilitada en document_chunk_embeddings',
+      coalesce((select relrowsecurity from pg_class where oid = to_regclass('public.document_chunk_embeddings')), false)),
+    ('policy document_chunk_embeddings_manage_staff',
+      exists (select 1 from pg_policies
+              where schemaname = 'public' and tablename = 'document_chunk_embeddings'
+                and policyname = 'document_chunk_embeddings_manage_staff')),
+    ('funcion public.match_policy_chunks',
+      exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'match_policy_chunks')),
+    ('authenticated puede ejecutar match_policy_chunks',
+      exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'match_policy_chunks'
+                and has_function_privilege('authenticated', p.oid, 'EXECUTE')))
+  ) as c(component, ok)
+
+  union all
+  -- 20261119101000: nueva restricción de estados editoriales y conversión de 'active' a 'in_review'.
+  select 4, '20261119101000_add_document_editorial_review_states', c.component, c.ok, c.component not like 'dato:%' from (values
+    ('restriccion documents_document_status_check con in_review y published',
+      exists (select 1 from pg_constraint
+              where conrelid = 'public.documents'::regclass and conname = 'documents_document_status_check'
+                and pg_get_constraintdef(oid) like '%in_review%'
+                and pg_get_constraintdef(oid) like '%published%')),
+    ('dato: ningun documento queda en estado active',
+      not exists (select 1 from public.documents where document_status = 'active'))
+  ) as c(component, ok)
+
+  union all
+  -- 20261120090000: datos operativos, registro del chat y funciones de escritura controlada.
+  select 5, '20261120090000_add_hr_operational_data', c.component, c.ok, c.component not like 'dato:%' from (values
+    ('columna employees.full_name',
+      exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'employees' and column_name = 'full_name')),
+    ('6 tablas nuevas',
+      (select count(*) from unnest(array['vacation_balances', 'sick_leaves', 'personnel_movements',
+        'payroll_calendar', 'performance_reviews', 'chat_query_logs']) as t(name)
+       where to_regclass('public.' || t.name) is not null) = 6),
+    ('RLS habilitada en las 6 tablas',
+      (select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public' and c.relrowsecurity
+         and c.relname in ('vacation_balances', 'sick_leaves', 'personnel_movements',
+           'payroll_calendar', 'performance_reviews', 'chat_query_logs')) = 6),
+    ('funcion public.append_assistant_message',
+      exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'append_assistant_message')),
+    ('esquema app_private',
+      exists (select 1 from pg_namespace where nspname = 'app_private')),
+    ('funcion app_private.log_chat_query',
+      exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'app_private' and p.proname = 'log_chat_query')),
+    ('rrhh_api puede ejecutar log_chat_query',
+      exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'app_private' and p.proname = 'log_chat_query'
+                and exists (select 1 from pg_roles where rolname = 'rrhh_api')
+                and has_function_privilege('rrhh_api', p.oid, 'EXECUTE')))
+  ) as c(component, ok)
+)
+select
+  migration,
+  bool_and(ok) as aplicada,
+  case when bool_and(ok) then 'aplicada' when bool_or(ok) filter (where marker) then 'PARCIAL' else 'no aplicada' end as estado,
+  jsonb_object_agg(component, ok) as detalle
+from checks
+group by ord, migration
+
+union all
+
+-- Fila informativa: prerrequisitos y datos que la guía necesita.
+select
+  'entorno (informativo)',
+  null,
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                     where n.nspname = 'public' and p.proname = 'guard_employee_leave_request_submission')
+      then 'funcion guarda: no existe'
+    -- Huella = md5 del cuerpo sin comentarios ni espacios (no depende de que se conserven los comentarios).
+    -- Ver 20261119_guard_function_diagnosis_readonly.sql para el detalle.
+    else 'funcion guarda: ' || coalesce((
+      select case md5(regexp_replace(regexp_replace(p.prosrc, '--[^\n]*', '', 'g'), '\s+', '', 'g'))
+               when '69374d84205b6c91c98c615c7bae8616' then 'version 090000'
+               when '5ff9146df6650bde15c0d7fb051ddc2a' then 'version 091000'
+               else 'DISTINTA del repo (correr 20261119_guard_function_diagnosis_readonly.sql)'
+             end
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'guard_employee_leave_request_submission'), '?')
+  end,
+  jsonb_build_object(
+    'rrhh_api_existe', exists (select 1 from pg_roles where rolname = 'rrhh_api'),
+    'search_path_sesion', current_setting('search_path'),
+    'vector_esquema', (select n.nspname from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'vector'),
+    'documents_status_check', (select pg_get_constraintdef(oid) from pg_constraint
+      where conrelid = 'public.documents'::regclass and conname = 'documents_document_status_check'),
+    'vector_disponible', exists (select 1 from pg_available_extensions where name = 'vector'),
+    'documentos_por_estado', coalesce((select jsonb_object_agg(document_status, total)
+      from (select document_status, count(*) as total from public.documents group by document_status) s), '{}'::jsonb),
+    'solicitudes_por_estado', coalesce((select jsonb_object_agg(status, total)
+      from (select status, count(*) as total from public.leave_requests group by status) s), '{}'::jsonb)
+  )
+order by 1;

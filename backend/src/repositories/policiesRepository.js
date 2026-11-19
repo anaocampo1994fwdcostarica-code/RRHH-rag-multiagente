@@ -1,5 +1,6 @@
 import { createUserDataClient } from '../services/supabaseDataClient.js'
 import { throwDataApiError } from './dataApiError.js'
+import { env } from '../config/env.js'
 
 const policyColumns = 'id,slug,title,category,status,summary,updated_at'
 
@@ -19,7 +20,7 @@ export function createPoliciesRepository({ createDataClient = createUserDataClie
       if (search) request = request.ilike('title', `%${search}%`)
 
       const { data, error, count } = await request
-      throwDataApiError(error)
+      throwDataApiError(error, { operation: 'policies.list', enabled: env.nodeEnv === 'development' })
       return { rows: data ?? [], total: count ?? 0 }
     },
 
@@ -33,7 +34,7 @@ export function createPoliciesRepository({ createDataClient = createUserDataClie
         .is('archived_at', null)
         .maybeSingle()
 
-      throwDataApiError(error)
+      throwDataApiError(error, { operation: 'policies.findBySlug', enabled: env.nodeEnv === 'development' })
       return data ?? null
     },
   }

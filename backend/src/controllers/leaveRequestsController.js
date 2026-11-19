@@ -64,6 +64,22 @@ export function createLeaveRequestsController({ repository = leaveRequestsReposi
         next(error)
       }
     },
+
+    async submit(request, response, next) {
+      try {
+        const id = parseUuid(request.params.id, 'id')
+        const employeeId = await repository.resolveCurrentEmployeeId(request.auth)
+        const current = await repository.findSubmissionCandidate(request.auth, id)
+        if (!current || current.employee_id !== employeeId) throw createHttpError(404, 'Not found')
+        if (current.status !== 'draft') throw createHttpError(409, 'Request is not a draft')
+
+        const row = await repository.submitDraft(request.auth, id, employeeId, new Date().toISOString())
+        if (!row) throw createHttpError(409, 'Request could not be submitted')
+        response.status(200).json({ data: toLeaveRequestResponse(row) })
+      } catch (error) {
+        next(error)
+      }
+    },
   }
 }
 
@@ -71,3 +87,4 @@ const controller = createLeaveRequestsController()
 export const listLeaveRequests = controller.list
 export const getLeaveRequest = controller.detail
 export const createLeaveRequest = controller.create
+export const submitLeaveRequest = controller.submit

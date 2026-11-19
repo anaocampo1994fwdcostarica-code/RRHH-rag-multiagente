@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createRequireAuth } from '../src/middlewares/requireAuth.js'
 import { getVerifiedAccessToken } from '../src/security/authIdentity.js'
+import { createAuthVerifierDiagnostic } from '../src/observability/authDiagnostics.js'
 
 const validUserId = '11111111-1111-4111-8111-111111111111'
 
@@ -28,13 +29,14 @@ function createRequest(authorization) {
   }
 }
 
-function createMiddleware(result) {
+function createMiddleware(result, reportVerifierFailure = () => {}) {
   return createRequireAuth({
     getClient: () => ({
       auth: {
         getClaims: async () => result,
       },
     }),
+    reportVerifierFailure,
   })
 }
 
@@ -107,6 +109,29 @@ test('returns 503 when the verifier is temporarily unavailable', async () => {
   const { response, nextCalls } = await invoke({ authorization: 'Bearer valid-token', result: { data: { claims: null }, error } })
   assert.equal(response.statusCode, 503)
   assert.equal(nextCalls, 0)
+})
+
+test('reports an unavailable verifier without logging token or error message data', async () => {
+  const error = Object.assign(new Error('must not be logged'), {
+    name: 'AuthRetryableFetchError',
+    status: 0,
+    cause: Object.assign(new Error('must not be logged'), { code: 'ETIMEDOUT' }),
+  })
+  let reported
+  const response = createResponse()
+  const request = createRequest('Bearer valid-token')
+  await createMiddleware({ data: { claims: null }, error }, (failure) => { reported = createAuthVerifierDiagnostic(failure) })(request, response, () => {})
+  assert.equal(response.statusCode, 503)
+  assert.deepEqual(reported, {
+    component: 'supabase-auth',
+    operation: 'auth.getClaims',
+    category: 'availability',
+    upstreamStatus: 0,
+    upstreamErrorName: 'AuthRetryableFetchError',
+    transportCode: 'ETIMEDOUT',
+  })
+  assert.equal(JSON.stringify(reported).includes('valid-token'), false)
+  assert.equal(JSON.stringify(reported).includes('must not be logged'), false)
 })
 
 test('attaches only verified identity data for an authenticated token', async () => {

@@ -1,8 +1,15 @@
 import { createHttpError } from '../errors/httpError.js'
+import { classifyDataApiError, reportDataApiFailure } from '../observability/dataApiDiagnostics.js'
 
-export function throwDataApiError(error) {
+export function throwDataApiError(error, options) {
   if (!error) return
-  if (error.code === '42501' || error.status === 401 || error.status === 403) {
+  reportDataApiFailure(error, options)
+
+  const category = classifyDataApiError(error)
+  if (category === 'authentication') {
+    throw createHttpError(401, 'Unauthorized')
+  }
+  if (category === 'authorization') {
     throw createHttpError(403, 'Forbidden')
   }
   if (error.code === 'PGRST116') {
@@ -11,11 +18,14 @@ export function throwDataApiError(error) {
   if (error.code === '23505' || error.code === '23503') {
     throw createHttpError(409, 'Conflict')
   }
-  if (error.code === '23514' || error.status === 400) {
+  if (category === 'validation') {
     throw createHttpError(400, 'Invalid data')
   }
-  if (error.status === 429 || error.status >= 500 || error.name === 'AuthRetryableFetchError') {
+  if (category === 'availability' || category === 'connectivity') {
     throw createHttpError(503, 'Data service unavailable')
+  }
+  if (category === 'schema') {
+    throw createHttpError(500, 'Data service schema mismatch')
   }
   throw createHttpError(500, 'Data service request failed')
 }

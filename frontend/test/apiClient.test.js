@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ApiError, createApiClient } from '../src/api/client.js'
-import { createLeaveRequest, getLeaveRequest, listLeaveRequests, listLeaveTypes } from '../src/features/leaveRequests/leaveRequestsApi.js'
+import { createLeaveRequest, getLeaveRequest, listLeaveRequests, listLeaveTypes, submitLeaveRequest } from '../src/features/leaveRequests/leaveRequestsApi.js'
 import { getPolicy, listPolicies } from '../src/features/policies/policiesApi.js'
 
 function response({ ok = true, status = 200, payload = {} } = {}) {
@@ -35,6 +35,30 @@ test('maps backend errors to safe API errors', async () => {
   }
 })
 
+test('does not expose the backend Not found literal to the policies interface', async () => {
+  const client = createApiClient({
+    getToken: async () => 'synthetic-token',
+    fetchImpl: async () => response({ ok: false, status: 404, payload: { error: 'Not found' } }),
+  })
+
+  await assert.rejects(
+    () => client.request('/policies'),
+    (error) => error instanceof ApiError && error.status === 404 && error.message === 'El recurso no está disponible.',
+  )
+})
+
+test('uses a neutral message for either Auth or Data API availability failures', async () => {
+  const client = createApiClient({
+    getToken: async () => 'synthetic-token',
+    fetchImpl: async () => response({ ok: false, status: 503, payload: { error: 'Authentication service unavailable' } }),
+  })
+
+  await assert.rejects(
+    () => client.request('/policies'),
+    (error) => error instanceof ApiError && error.message === 'Un servicio requerido no está disponible temporalmente.',
+  )
+})
+
 test('builds only supported policy and leave-request endpoint paths', async () => {
   const requests = []
   const client = { request: async (path, options) => { requests.push({ path, options }); return { data: [] } } }
@@ -44,10 +68,13 @@ test('builds only supported policy and leave-request endpoint paths', async () =
   await getLeaveRequest('11111111-1111-4111-8111-111111111111', client)
   await listLeaveTypes({ limit: 50 }, client)
   await createLeaveRequest({ leaveTypeId: '33333333-3333-4333-8333-333333333333', startDate: '2026-12-01', endDate: '2026-12-02', reason: 'Synthetic' }, client)
+  await submitLeaveRequest('11111111-1111-4111-8111-111111111111', client)
   assert.equal(requests[0].path, '/policies?q=vacaciones&category=Permisos&page=2&limit=10')
   assert.equal(requests[1].path, '/policies/vacaciones-2026')
   assert.equal(requests[2].path, '/leave-requests?status=draft&page=1&limit=20')
   assert.equal(requests[3].path, '/leave-requests/11111111-1111-4111-8111-111111111111')
   assert.equal(requests[4].path, '/leave-types?limit=50')
   assert.deepEqual(requests[5].options.body, { leaveTypeId: '33333333-3333-4333-8333-333333333333', startDate: '2026-12-01', endDate: '2026-12-02', reason: 'Synthetic' })
+  assert.equal(requests[6].path, '/leave-requests/11111111-1111-4111-8111-111111111111/submit')
+  assert.equal(requests[6].options.method, 'POST')
 })

@@ -3,6 +3,7 @@ import test from 'node:test'
 import { createLeaveTypesController } from '../src/controllers/leaveTypesController.js'
 import { createPoliciesController } from '../src/controllers/policiesController.js'
 import { throwDataApiError } from '../src/repositories/dataApiError.js'
+import { createDataApiDiagnostic } from '../src/observability/dataApiDiagnostics.js'
 import { parsePolicyListQuery, parsePolicySlug } from '../src/validation/policies.js'
 
 const auth = Object.freeze({ userId: '11111111-1111-4111-8111-111111111111', role: 'authenticated' })
@@ -102,12 +103,28 @@ test('lists active leave types with an explicit response allow-list', async () =
   assert.deepEqual(response.body.data[0], { id: 'type-id', code: 'vacaciones', name: 'Vacaciones', requiresAttachment: false })
 })
 
-test('maps Data API permission, not-found, and availability errors safely', () => {
+test('maps Data API permission, authentication, schema, and availability errors safely', () => {
   for (const [error, expectedStatus] of [
     [{ code: '42501' }, 403],
+    [{ status: 401 }, 401],
     [{ code: 'PGRST116' }, 404],
+    [{ code: 'PGRST204' }, 500],
+    [{ code: '42703' }, 500],
     [{ status: 503 }, 503],
+    [{ code: 'ENOTFOUND' }, 503],
   ]) {
     assert.throws(() => throwDataApiError(error), (thrown) => thrown.statusCode === expectedStatus)
   }
+})
+
+test('creates diagnostics without message, credentials, or token data', () => {
+  const diagnostic = createDataApiDiagnostic({ status: 503, code: 'PGRST205', message: 'must not be logged', token: 'must not be logged' }, 'policies.list')
+  assert.deepEqual(diagnostic, {
+    component: 'supabase-data-api',
+    operation: 'policies.list',
+    category: 'schema',
+    upstreamStatus: 503,
+    upstreamCode: 'PGRST205',
+  })
+  assert.equal(JSON.stringify(diagnostic).includes('must not be logged'), false)
 })

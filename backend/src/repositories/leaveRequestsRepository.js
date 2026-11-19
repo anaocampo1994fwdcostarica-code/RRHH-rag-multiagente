@@ -3,6 +3,7 @@ import { createUserDataClient } from '../services/supabaseDataClient.js'
 import { throwDataApiError } from './dataApiError.js'
 
 const requestColumns = 'id,leave_type_id,start_date,end_date,reason,status,submitted_at,resolved_at,created_at,updated_at'
+const submissionCandidateColumns = 'id,employee_id,status'
 
 export function createLeaveRequestsRepository({ createDataClient = createUserDataClient } = {}) {
   return {
@@ -29,6 +30,19 @@ export function createLeaveRequestsRepository({ createDataClient = createUserDat
       const { data, error } = await client
         .from('leave_requests')
         .select(requestColumns)
+        .eq('id', id)
+        .is('deleted_at', null)
+        .maybeSingle()
+
+      throwDataApiError(error)
+      return data ?? null
+    },
+
+    async findSubmissionCandidate(auth, id) {
+      const client = createDataClient(auth)
+      const { data, error } = await client
+        .from('leave_requests')
+        .select(submissionCandidateColumns)
         .eq('id', id)
         .is('deleted_at', null)
         .maybeSingle()
@@ -82,6 +96,22 @@ export function createLeaveRequestsRepository({ createDataClient = createUserDat
 
       throwDataApiError(error)
       return data
+    },
+
+    async submitDraft(auth, id, employeeId, submittedAt) {
+      const client = createDataClient(auth)
+      const { data, error } = await client
+        .from('leave_requests')
+        .update({ status: 'submitted', submitted_at: submittedAt })
+        .eq('id', id)
+        .eq('employee_id', employeeId)
+        .eq('status', 'draft')
+        .is('deleted_at', null)
+        .select(requestColumns)
+        .maybeSingle()
+
+      throwDataApiError(error)
+      return data ?? null
     },
   }
 }

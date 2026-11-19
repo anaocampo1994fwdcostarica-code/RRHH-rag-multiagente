@@ -1,0 +1,37 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router'
+import { ApiError } from '../../../api/client.js'
+import { listAdminLeaveRequests } from '../adminLeaveRequestsApi.js'
+import { getLeaveRequestStatusLabel, getLeaveRequestStatusStyle, leaveRequestStatuses } from '../presentation.js'
+
+function AdminLeaveRequestsPage() {
+  const [filters, setFilters] = useState({ status: '', page: 1, limit: 20 })
+  const [result, setResult] = useState({ data: [], total: 0, limit: 20 })
+  const [state, setState] = useState('loading')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    listAdminLeaveRequests(filters)
+      .then((response) => { if (!cancelled) { setResult(response); setState('ready') } })
+      .catch((requestError) => { if (!cancelled) { setError(requestError instanceof ApiError ? requestError.message : 'No fue posible cargar las solicitudes.'); setState('error') } })
+    return () => { cancelled = true }
+  }, [filters])
+
+  const pageCount = Math.max(1, Math.ceil(result.total / result.limit))
+  const rows = useMemo(() => result.data ?? [], [result.data])
+  const updateStatus = (status) => setFilters((current) => ({ ...current, status, page: 1 }))
+
+  return <div className="mx-auto max-w-7xl">
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Gestión de solicitudes</h1>
+      <p className="mt-2 text-sm text-slate-600">Bandeja autorizada para consulta de solicitudes de Recursos Humanos.</p>
+      <label className="mt-5 block max-w-xs"><span className="mb-1 block text-sm font-medium text-slate-700">Estado</span><select value={filters.status} onChange={(event) => updateStatus(event.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">{leaveRequestStatuses.map((status) => <option key={status} value={status}>{status ? getLeaveRequestStatusLabel(status) : 'Todos'}</option>)}</select></label>
+    </section>
+    {state === 'loading' && <p className="mt-6 rounded-lg bg-white p-6 text-sm text-slate-500">Cargando solicitudes…</p>}
+    {state === 'error' && <p role="alert" className="mt-6 rounded-lg border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800">{error}</p>}
+    {state === 'ready' && (rows.length ? <><section className="mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white"><div className="overflow-x-auto"><table className="min-w-[820px] w-full text-left text-sm"><thead className="bg-slate-50 text-slate-600"><tr><th className="px-4 py-3">Empleado</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Inicio</th><th className="px-4 py-3">Fin</th><th className="px-4 py-3">Estado</th><th className="px-4 py-3">Enviada</th><th className="px-4 py-3"><span className="sr-only">Detalle</span></th></tr></thead><tbody>{rows.map((item) => <tr key={item.id} className="border-t border-slate-100"><td className="px-4 py-3"><p className="font-medium text-slate-800">{item.employee?.displayName ?? 'Nombre no disponible'}</p><p className="text-xs text-slate-500">{item.employee?.employeeCode ?? 'Código no disponible'}</p></td><td className="px-4 py-3 text-slate-700">{item.leaveTypeName ?? 'Tipo no disponible'}</td><td className="px-4 py-3 text-slate-600">{item.startDate}</td><td className="px-4 py-3 text-slate-600">{item.endDate}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getLeaveRequestStatusStyle(item.status)}`}>{getLeaveRequestStatusLabel(item.status)}</span></td><td className="px-4 py-3 text-slate-600">{item.submittedAt ? new Date(item.submittedAt).toLocaleDateString('es-CR') : 'Sin enviar'}</td><td className="px-4 py-3 text-right"><Link to={`/gestion-solicitudes/${item.id}`} className="font-medium text-[#0f4c5c]">Ver detalle</Link></td></tr>)}</tbody></table></div></section><nav aria-label="Paginación administrativa" className="mt-6 flex items-center justify-center gap-3"><button type="button" disabled={filters.page === 1} onClick={() => setFilters((current) => ({ ...current, page: current.page - 1 }))} className="rounded border border-slate-300 px-3 py-2 text-sm disabled:opacity-50">Anterior</button><span className="text-sm text-slate-600">Página {filters.page} de {pageCount}</span><button type="button" disabled={filters.page >= pageCount} onClick={() => setFilters((current) => ({ ...current, page: current.page + 1 }))} className="rounded border border-slate-300 px-3 py-2 text-sm disabled:opacity-50">Siguiente</button></nav></> : <section className="mt-6 rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center"><h2 className="font-semibold text-slate-800">No hay solicitudes para estos filtros</h2></section>)}
+  </div>
+}
+
+export default AdminLeaveRequestsPage

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createLeaveRequestsController } from '../src/controllers/leaveRequestsController.js'
 import { throwDataApiError } from '../src/repositories/dataApiError.js'
+import { createLeaveRequestsRepository } from '../src/repositories/leaveRequestsRepository.js'
 import { parseCreateLeaveRequestBody, parseLeaveRequestListQuery } from '../src/validation/leaveRequests.js'
 
 const authA = Object.freeze({ userId: '11111111-1111-4111-8111-111111111111', role: 'authenticated' })
@@ -166,6 +167,96 @@ test('rejects invisible and attachment-required leave types before creating a re
   })
   const attachmentResult = await invoke(attachment.create, { body: input })
   assert.equal(attachmentResult.nextError.statusCode, 409)
+})
+
+test('submits a visible own draft through the repository without accepting transition data from the client', async () => {
+  let submitCall
+  const controller = createLeaveRequestsController({
+    repository: {
+      resolveCurrentEmployeeId: async () => 'employee-a',
+      findSubmissionCandidate: async () => ({ id: requestId, employee_id: 'employee-a', status: 'draft' }),
+      submitDraft: async (receivedAuth, receivedId, receivedEmployeeId, submittedAt) => {
+        submitCall = { receivedAuth, receivedId, receivedEmployeeId, submittedAt }
+        return requestRow({ status: 'submitted', submitted_at: submittedAt })
+      },
+    },
+  })
+  const { response, nextError } = await invoke(controller.submit, { params: { id: requestId } })
+  assert.equal(nextError, undefined)
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.body.data.status, 'submitted')
+  assert.equal(submitCall.receivedAuth, authA)
+  assert.equal(submitCall.receivedId, requestId)
+  assert.equal(submitCall.receivedEmployeeId, 'employee-a')
+  assert.match(submitCall.submittedAt, /^\d{4}-\d{2}-\d{2}T/)
+})
+
+test('does not submit an invisible, foreign, non-draft, or duplicate request', async () => {
+  let calls = 0
+  const invisible = createLeaveRequestsController({
+    repository: {
+      resolveCurrentEmployeeId: async () => 'employee-b',
+      findSubmissionCandidate: async () => null,
+      submitDraft: async () => { calls += 1 },
+    },
+  })
+  const invisibleResult = await invoke(invisible.submit, { params: { id: requestId }, requestAuth: authB })
+  assert.equal(invisibleResult.nextError.statusCode, 404)
+
+  const submitted = createLeaveRequestsController({
+    repository: {
+      resolveCurrentEmployeeId: async () => 'employee-a',
+      findSubmissionCandidate: async () => ({ id: requestId, employee_id: 'employee-a', status: 'submitted' }),
+      submitDraft: async () => { calls += 1 },
+    },
+  })
+  const duplicateResult = await invoke(submitted.submit, { params: { id: requestId } })
+  assert.equal(duplicateResult.nextError.statusCode, 409)
+
+  const foreign = createLeaveRequestsController({
+    repository: {
+      resolveCurrentEmployeeId: async () => 'employee-a',
+      findSubmissionCandidate: async () => ({ id: requestId, employee_id: 'employee-b', status: 'draft' }),
+      submitDraft: async () => { calls += 1 },
+    },
+  })
+  const foreignResult = await invoke(foreign.submit, { params: { id: requestId } })
+  assert.equal(foreignResult.nextError.statusCode, 404)
+  assert.equal(calls, 0)
+})
+
+test('handles an update that no longer matches a draft without reporting success', async () => {
+  const controller = createLeaveRequestsController({
+    repository: {
+      resolveCurrentEmployeeId: async () => 'employee-a',
+      findSubmissionCandidate: async () => ({ id: requestId, employee_id: 'employee-a', status: 'draft' }),
+      submitDraft: async () => null,
+    },
+  })
+  const { nextError } = await invoke(controller.submit, { params: { id: requestId } })
+  assert.equal(nextError.statusCode, 409)
+})
+
+test('limits the submission Data API update to its status, timestamp, draft, and owner predicates', async () => {
+  const operations = []
+  const builder = {
+    from(table) { operations.push(['from', table]); return this },
+    update(payload) { operations.push(['update', payload]); return this },
+    eq(column, value) { operations.push(['eq', column, value]); return this },
+    is(column, value) { operations.push(['is', column, value]); return this },
+    select(columns) { operations.push(['select', columns]); return this },
+    async maybeSingle() { return { data: requestRow({ status: 'submitted' }), error: null } },
+  }
+  const repository = createLeaveRequestsRepository({ createDataClient: () => builder })
+  await repository.submitDraft(authA, requestId, 'employee-a', '2026-11-20T00:00:00.000Z')
+
+  assert.deepEqual(operations[1], ['update', { status: 'submitted', submitted_at: '2026-11-20T00:00:00.000Z' }])
+  assert.deepEqual(operations.filter(([operation]) => operation === 'eq'), [
+    ['eq', 'id', requestId],
+    ['eq', 'employee_id', 'employee-a'],
+    ['eq', 'status', 'draft'],
+  ])
+  assert.deepEqual(operations.find(([operation]) => operation === 'is'), ['is', 'deleted_at', null])
 })
 
 test('maps conflict and invalid Data API errors safely', () => {

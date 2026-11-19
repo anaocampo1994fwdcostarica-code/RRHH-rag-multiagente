@@ -1,5 +1,7 @@
 import { getSupabaseAuthClient } from '../services/supabaseAuthClient.js'
 import { createVerifiedAuthIdentity } from '../security/authIdentity.js'
+import { env } from '../config/env.js'
+import { isAuthVerifierUnavailable, reportAuthVerifierFailure } from '../observability/authDiagnostics.js'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -15,15 +17,10 @@ function getBearerToken(request) {
   return match?.[1]
 }
 
-function isVerifierUnavailable(error) {
-  return error?.status >= 500
-    || error?.status === 429
-    || error?.name === 'AbortError'
-    || error?.name === 'AuthRetryableFetchError'
-    || ['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT'].includes(error?.code)
-}
-
-export function createRequireAuth({ getClient = getSupabaseAuthClient } = {}) {
+export function createRequireAuth({
+  getClient = getSupabaseAuthClient,
+  reportVerifierFailure = (error) => reportAuthVerifierFailure(error, { enabled: env.nodeEnv === 'development' }),
+} = {}) {
   return async function requireAuth(request, response, next) {
     const token = getBearerToken(request)
     if (!token) {
@@ -35,12 +32,16 @@ export function createRequireAuth({ getClient = getSupabaseAuthClient } = {}) {
     try {
       verification = await getClient().auth.getClaims(token)
     } catch (error) {
-      sendAuthError(response, isVerifierUnavailable(error) ? 503 : 401, isVerifierUnavailable(error) ? 'Authentication service unavailable' : 'Unauthorized')
+      const unavailable = isAuthVerifierUnavailable(error)
+      if (unavailable) reportVerifierFailure(error)
+      sendAuthError(response, unavailable ? 503 : 401, unavailable ? 'Authentication service unavailable' : 'Unauthorized')
       return
     }
 
     if (verification.error || !verification.data?.claims) {
-      sendAuthError(response, isVerifierUnavailable(verification.error) ? 503 : 401, isVerifierUnavailable(verification.error) ? 'Authentication service unavailable' : 'Unauthorized')
+      const unavailable = isAuthVerifierUnavailable(verification.error)
+      if (unavailable) reportVerifierFailure(verification.error)
+      sendAuthError(response, unavailable ? 503 : 401, unavailable ? 'Authentication service unavailable' : 'Unauthorized')
       return
     }
 

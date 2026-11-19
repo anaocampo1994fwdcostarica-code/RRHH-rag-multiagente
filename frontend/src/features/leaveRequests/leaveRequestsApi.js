@@ -11,3 +11,4 @@ export function listLeaveRequests(filters, client = apiClient) { return client.r
 export function getLeaveRequest(id, client = apiClient) { return client.request(`/leave-requests/${encodeURIComponent(id)}`) }
 export function listLeaveTypes(filters = {}, client = apiClient) { return client.request(`/leave-types${query(filters)}`) }
 export function createLeaveRequest(payload, client = apiClient) { return client.request('/leave-requests', { method: 'POST', body: payload }) }
+export function submitLeaveRequest(id, client = apiClient) { return client.request(`/leave-requests/${encodeURIComponent(id)}/submit`, { method: 'POST' }) }

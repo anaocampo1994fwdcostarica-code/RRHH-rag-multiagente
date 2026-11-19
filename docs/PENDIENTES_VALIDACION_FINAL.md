@@ -27,6 +27,9 @@
 
 ## Agente de datos (sesión 3)
 
+- [x] Regla de arquitectura aplicada (2026-11-19): las consultas del agente de datos viven en la base (`20261121090000_add_data_agent_functions.sql`: funciones `get_my_*` y `get_absences_today_summary`, SECURITY INVOKER, STABLE, sin identidad como parámetro). El backend solo las invoca. Aplicada en pruebas: estado OK, harness 18/18, test:data-integration 7/7, respuestas de A idénticas.
+- Aplicar la misma regla al agente analista (sesión 5) y al dashboard: `DashboardPage.jsx` todavía tiene cifras fijas.
+
 - Mejora opcional: alcance `other` (RRHH consultando datos de otra persona por el chat). Hoy responde "no disponible" y ofrece escalar; requeriría herramientas con identificación explícita del colaborador, validada contra `employees.read` y auditada.
 - `backend/.env` ya tiene `DATABASE_URL` (`rrhh_api`) y `DATABASE_SSL_CA_FILE`; `chat_query_logs` y el agente de datos dependen de ellos.
 - Probar en el navegador con `rls.employee.a` y revisar `chat_query_logs` (pasos en la sesión 3).

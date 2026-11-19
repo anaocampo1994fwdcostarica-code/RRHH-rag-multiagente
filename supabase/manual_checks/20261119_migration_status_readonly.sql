@@ -107,6 +107,27 @@ with checks(ord, migration, component, ok, marker) as (
                 and exists (select 1 from pg_roles where rolname = 'rrhh_api')
                 and has_function_privilege('rrhh_api', p.oid, 'EXECUTE')))
   ) as c(component, ok)
+
+  union all
+  -- 20261121090000: funciones SQL del agente de datos (las consultas viven en la base).
+  select 6, '20261121090000_add_data_agent_functions', c.component, c.ok, c.component not like 'dato:%' from (values
+    ('6 funciones get_* del agente de datos',
+      (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname in ('get_my_vacation_balance', 'get_my_next_payment', 'get_my_next_review',
+         'get_my_requests', 'get_my_sick_leaves', 'get_absences_today_summary')) = 6),
+    ('todas SECURITY INVOKER y STABLE con search_path fijo',
+      not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname in ('get_my_vacation_balance', 'get_my_next_payment', 'get_my_next_review',
+         'get_my_requests', 'get_my_sick_leaves', 'get_absences_today_summary')
+         and (p.prosecdef or p.provolatile <> 's' or p.proconfig is null))
+      and exists (select 1 from pg_proc p where p.proname = 'get_absences_today_summary')),
+    ('authenticated ejecuta y anon no',
+      not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname in ('get_my_vacation_balance', 'get_my_next_payment', 'get_my_next_review',
+         'get_my_requests', 'get_my_sick_leaves', 'get_absences_today_summary')
+         and (not has_function_privilege('authenticated', p.oid, 'EXECUTE') or has_function_privilege('anon', p.oid, 'EXECUTE')))
+      and exists (select 1 from pg_proc p where p.proname = 'get_absences_today_summary'))
+  ) as c(component, ok)
 )
 select
   migration,

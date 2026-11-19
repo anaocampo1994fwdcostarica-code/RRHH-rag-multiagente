@@ -119,24 +119,42 @@ test('inyección: otro employee_id, código DEMO o nombre en la pregunta o en la
   assert.deepEqual(parseToolSelection({ tool: 'my_requests', params: { weekday: 'viernes', employee_id: 'x', date: '2026-02-30', leaveType: 'otro', status: 'approved' } }), { tool: 'my_requests', params: { isoWeekday: 5, status: 'approved' } })
 })
 
-test('el repositorio no tiene ningún parámetro de identidad y filtra por current_employee_id()', async () => {
+test('el repositorio solo invoca funciones SQL de la base, sin parámetros de identidad', async () => {
   const queries = []
-  const transaction = async (identity, callback) => callback({ query: async (text, values = []) => {
-    queries.push({ text, values })
-    if (/current_employee_id\(\) as employee_id/.test(text)) return { rows: [{ employee_id: 'e-1', today: TODAY }] }
-    return { rows: [] }
-  } })
+  const transaction = async (identity, callback) => callback({ query: async (text, values = []) => { queries.push({ identity, text, values }); return { rows: [] } } })
   const repository = createDataAgentRepository({ transaction })
   await repository.vacationBalance(auth)
+  await repository.nextPayment(auth)
   await repository.nextReview(auth)
   await repository.myRequests(auth, { isoWeekday: 5, employee_id: 'otro' })
   await repository.mySickLeaves(auth, { activeOnly: true })
-  for (const { text } of queries.filter((query) => /vacation_balances|performance_reviews|leave_requests|sick_leaves/.test(query.text))) {
-    assert.match(text, /employee_id = public\.current_employee_id\(\)/)
+  await repository.absencesToday(auth)
+  assert.deepEqual(queries.map(({ text }) => text.match(/public\.(get_[a-z_]+)\(/)[1]), ['get_my_vacation_balance', 'get_my_next_payment', 'get_my_next_review', 'get_my_requests', 'get_my_sick_leaves', 'get_absences_today_summary'])
+  for (const { identity, text } of queries) {
+    assert.equal(identity, auth)
+    assert.doesNotMatch(text, /from public\.(vacation_balances|payroll_calendar|performance_reviews|leave_requests|sick_leaves|employees)\b/)
+    assert.doesNotMatch(text, /current_date|;/)
   }
-  assert.ok(queries.every(({ text }) => !text.includes(';')))
-  assert.ok(queries.every(({ text }) => !/current_date/.test(text)))
-  assert.deepEqual(queries.find((query) => /leave_requests/.test(query.text)).values, [null, null, null, 5])
+  assert.deepEqual(queries[3].values, [null, 5, null, null])
+  assert.deepEqual(queries[4].values, [true])
+})
+
+test('el repositorio traduce P0002 (sin colaborador) y 42501 (sin permiso para el agregado)', async () => {
+  const failing = (code) => createDataAgentRepository({ transaction: async () => { throw Object.assign(new Error('x'), { code }) } })
+  assert.deepEqual(await failing('P0002').vacationBalance(auth), { linked: false, today: null, rows: [] })
+  assert.deepEqual(await failing('42501').absencesToday(auth), { allowed: false, today: null })
+  await assert.rejects(failing('XX000').nextReview(auth))
+})
+
+test('el repositorio arma totales y desglose del agregado desde los niveles de la función', async () => {
+  const rows = [
+    { level: 'category', department: null, category: 'incapacidad', detail: null, people: 4, today: '2026-11-19' },
+    { level: 'category', department: null, category: 'permiso_aprobado', detail: null, people: 4, today: '2026-11-19' },
+    { level: 'detail', department: 'Finanzas', category: 'incapacidad', detail: 'maternidad', people: 1, today: '2026-11-19' },
+    { level: 'total', department: null, category: null, detail: null, people: 8, today: '2026-11-19' },
+  ]
+  const repository = createDataAgentRepository({ transaction: async (_auth, callback) => callback({ query: async () => ({ rows }) }) })
+  assert.deepEqual(await repository.absencesToday(auth), { allowed: true, today: '2026-11-19', totals: { incapacidad: 4, permiso_aprobado: 4, total: 8 }, breakdown: [{ department: 'Finanzas', category: 'incapacidad', detail: 'maternidad', people: 1 }] })
 })
 
 test('sin colaborador vinculado o sin datos: lo dice y ofrece escalar, sin inventar', async () => {

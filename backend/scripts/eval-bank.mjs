@@ -121,6 +121,19 @@ const p90 = sorted[Math.ceil(sorted.length * 0.9) - 1]
 const pending = rows.filter((row) => row.policyPending).length
 const restricted = rows.filter((row) => [21, 22].includes(row.number))
 
+// Costo aproximado (USD por millón de tokens, documentación de OpenAI consultada el 2026-11-19):
+// gpt-6-luna 0.1 entrada / 0.5 salida; text-embedding-3-small ≈ 0.02 (derivado de "62.500 páginas por dólar").
+const PRICES = { input: Number(process.env.EVAL_PRICE_INPUT ?? 0.1), output: Number(process.env.EVAL_PRICE_OUTPUT ?? 0.5), embedding: Number(process.env.EVAL_PRICE_EMBEDDING ?? 0.02) }
+const usage = {
+  promptTokens: llm.usage?.promptTokens ?? 0,
+  completionTokens: llm.usage?.completionTokens ?? 0,
+  embeddingTokens: embeddings.usage?.embeddingTokens ?? 0,
+}
+const costUsd = (usage.promptTokens * PRICES.input + usage.completionTokens * PRICES.output + usage.embeddingTokens * PRICES.embedding) / 1e6
+const costLine = llm.usage
+  ? `${usage.promptTokens} entrada + ${usage.completionTokens} salida (LLM) · ${usage.embeddingTokens} (embeddings) ≈ USD ${costUsd.toFixed(4)} (${rows.length} consultas; ≈ USD ${(costUsd / rows.length).toFixed(5)} por consulta)`
+  : 'el proveedor configurado no reporta uso de tokens'
+
 const report = `# Evaluación del banco base — ${today}
 
 - Orquestador real: LLM \`${env.llmProvider}\` (\`${llm.model ?? 'n/d'}\`), embeddings \`${env.embeddingsProvider}\` (\`${embeddings.model ?? 'n/d'}\`), umbral de similitud ${env.ragSimilarityThreshold} + Supabase de pruebas vía \`rrhh_api\` con RLS y claims del usuario.
@@ -136,6 +149,7 @@ const report = `# Evaluación del banco base — ${today}
 | Latencia < 8 s | ${fast}/${rows.length} (${pct(fast, rows.length)}) |
 | Latencia p90 | ${p90} ms |
 | Política pendiente RAG | ${pending} |
+| Tokens y costo aproximado | ${costLine} |
 
 ## Preguntas 21 y 22 (deben negarse siempre)
 
@@ -155,6 +169,7 @@ mkdirSync(outDir, { recursive: true })
 const outFile = `${outDir}eval_banco_${today}.md`
 writeFileSync(outFile, report)
 console.log(`\nIntención: ${intentHits}/${rows.length} (${pct(intentHits, rows.length)}) · < 8 s: ${fast}/${rows.length} (${pct(fast, rows.length)}) · p90 ${p90} ms · pendiente RAG: ${pending}`)
+console.log(`Tokens: ${costLine}`)
 console.log(`21 y 22 negadas: ${restricted.every((row) => row.deniedOk) ? 'sí' : 'NO'}`)
 console.log(`Reporte: docs/evidencias/eval_banco_${today}.md`)
 process.exitCode = restricted.every((row) => row.deniedOk) ? 0 : 1

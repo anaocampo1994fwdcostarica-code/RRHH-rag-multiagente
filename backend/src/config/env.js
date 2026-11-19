@@ -27,6 +27,12 @@ function requireUrl(name, allowedProtocols) {
   }
 }
 
+// Umbral de similitud coseno para match_policy_chunks, inicial por modelo de embeddings (se calibra en la
+// sesión 4 con el banco de preguntas). OpenAI text-embedding-3-small puntúa bajo (pares relacionados ≈ 0.5–0.7,
+// sin relación ≈ 0.2–0.4): 0.45. E5 puntúa alto aun sin relación (≈ 0.75–0.89): 0.82. Gemini: 0.7.
+// Debe declararse antes de env: parseThreshold lo usa al construir env.
+export const DEFAULT_SIMILARITY_THRESHOLDS = Object.freeze({ openai: 0.45, local: 0.82, gemini: 0.7 })
+
 export const env = {
   port: Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 3001,
   frontendUrl: process.env.FRONTEND_URL ?? 'http://localhost:5173',
@@ -35,15 +41,13 @@ export const env = {
   supabasePublishableKey: optionalValue('SUPABASE_PUBLISHABLE_KEY'),
   databaseUrl: optionalValue('DATABASE_URL'),
   databaseSslCaFile: optionalValue('DATABASE_SSL_CA_FILE'),
-  llmProvider: optionalValue('LLM_PROVIDER') ?? 'deepseek',
-  embeddingsProvider: optionalValue('EMBEDDINGS_PROVIDER') ?? 'local',
-  ragSimilarityThreshold: parseThreshold(optionalValue('RAG_SIMILARITY_THRESHOLD')),
+  llmProvider: optionalValue('LLM_PROVIDER') ?? 'openai',
+  embeddingsProvider: optionalValue('EMBEDDINGS_PROVIDER') ?? 'openai',
+  ragSimilarityThreshold: parseThreshold(optionalValue('RAG_SIMILARITY_THRESHOLD'), optionalValue('EMBEDDINGS_PROVIDER') ?? 'openai'),
 }
 
-// Umbral de similitud coseno para match_policy_chunks. Con E5 los puntajes suelen ser altos aun sin
-// relación (≈ 0.75–0.80), por eso el valor inicial es 0.82; se calibra con el banco de preguntas.
-function parseThreshold(value) {
-  if (value === undefined) return 0.82
+function parseThreshold(value, embeddingsProvider) {
+  if (value === undefined) return DEFAULT_SIMILARITY_THRESHOLDS[embeddingsProvider] ?? 0.7
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) throw new Error('RAG_SIMILARITY_THRESHOLD must be a number between 0 and 1.')
   return parsed

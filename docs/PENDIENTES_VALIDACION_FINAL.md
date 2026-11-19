@@ -27,8 +27,8 @@
 
 ## Proveedores LLM y embeddings
 
-- DeepSeek + E5 local implementados (ver `docs/DECISION_PROVEEDORES_LLM.md`). Pendiente: `DEEPSEEK_API_KEY` válida (la actual responde 401), repetir `npm run smoke:providers` y correr `npm run eval:bank`.
-- Calibrar `RAG_SIMILARITY_THRESHOLD` (inicial 0.82) en la sesión 4 con los documentos reales y el banco de preguntas.
+- OpenAI (`gpt-6-luna` + `text-embedding-3-small`, 768 dim) es el proveedor por defecto; DeepSeek, Gemini y E5 local quedan como alternativas (ver `docs/DECISION_PROVEEDORES_LLM.md`). Pendiente: `OPENAI_API_KEY` válida (la actual responde 401 `invalid_api_key`), `npm run smoke:providers` y `npm run eval:bank`.
+- Calibrar `RAG_SIMILARITY_THRESHOLD` en la sesión 4 (inicial 0.45 para OpenAI).
 - [x] Contraseña de `rrhh_api` rotada (2026-11-19) con `backend/scripts/rotate-rrhh-api-password.mjs` (solo verificador SCRAM); test:data-integration 7/7.
 
 ## Agente de datos (sesión 3)

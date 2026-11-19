@@ -1,4 +1,4 @@
-import { createGeminiProvider } from '../rag/geminiProvider.js'
+import { getEmbeddingProvider, getLlmProvider } from '../llm/providers.js'
 import { createPolicyAgent } from '../rag/policyAgent.js'
 import { createVectorRepository } from '../rag/vectorRepository.js'
 import { createChatQueryLogRepository } from '../repositories/chatQueryLogRepository.js'
@@ -9,7 +9,7 @@ import { createIntentClassifier } from './intentClassifier.js'
 import { evaluateQuerySafety } from './safetyGuard.js'
 
 // Flujo: identidad/rol + historial → capa de seguridad determinista (sin LLM) → clasificador
-// Gemini (JSON validado) → segunda pasada de seguridad sobre la reformulación → enrutamiento.
+// LLM (JSON validado) → segunda pasada de seguridad sobre la reformulación → enrutamiento.
 
 const HISTORY_LIMIT = 6
 
@@ -25,14 +25,13 @@ function buildResponse({ answer, intent, agent, evidenceStatus, citations = [], 
   return { answer, intent, agent, evidenceStatus, citations, escalationOffered }
 }
 
-let sharedGemini
-const getGemini = () => (sharedGemini ??= createGeminiProvider())
+// LLM y embeddings según LLM_PROVIDER / EMBEDDINGS_PROVIDER (por defecto DeepSeek + E5 local).
 
 function createDefaultDependencies() {
-  const gemini = getGemini()
+  const llm = getLlmProvider()
   return {
-    policyAgent: createPolicyAgent({ embeddings: gemini, vectors: createVectorRepository(), llm: gemini }),
-    classifier: createIntentClassifier({ llm: gemini }),
+    policyAgent: createPolicyAgent({ embeddings: getEmbeddingProvider(), vectors: createVectorRepository(), llm }),
+    classifier: createIntentClassifier({ llm }),
   }
 }
 
@@ -72,7 +71,7 @@ function combineMixed(dataResult, policyResult) {
 export function createOrchestrator({
   policyAgent,
   classifier,
-  dataAgent = createDataAgent({ llm: getGemini() }),
+  dataAgent = createDataAgent({ llm: getLlmProvider() }),
   conversations = createConversationRepository(),
   resolveIsHr = (auth) => permissionsRepository.hasPermission(auth, 'employees.read'),
   queryLog = createChatQueryLogRepository(),

@@ -35,6 +35,18 @@ export const env = {
   supabasePublishableKey: optionalValue('SUPABASE_PUBLISHABLE_KEY'),
   databaseUrl: optionalValue('DATABASE_URL'),
   databaseSslCaFile: optionalValue('DATABASE_SSL_CA_FILE'),
+  llmProvider: optionalValue('LLM_PROVIDER') ?? 'deepseek',
+  embeddingsProvider: optionalValue('EMBEDDINGS_PROVIDER') ?? 'local',
+  ragSimilarityThreshold: parseThreshold(optionalValue('RAG_SIMILARITY_THRESHOLD')),
+}
+
+// Umbral de similitud coseno para match_policy_chunks. Con E5 los puntajes suelen ser altos aun sin
+// relación (≈ 0.75–0.80), por eso el valor inicial es 0.82; se calibra con el banco de preguntas.
+function parseThreshold(value) {
+  if (value === undefined) return 0.82
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) throw new Error('RAG_SIMILARITY_THRESHOLD must be a number between 0 and 1.')
+  return parsed
 }
 
 // These are intentionally deferred. Health checks must work before integrations

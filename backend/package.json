@@ -9,10 +9,13 @@
     "test": "node --test",
     "test:rls-integration": "node scripts/run-rls-integration.mjs",
     "lint": "eslint .",
-    "test:data-integration": "node scripts/run-data-agent-integration.mjs"
+    "test:data-integration": "node scripts/run-data-agent-integration.mjs",
+    "eval:bank": "node scripts/eval-bank.mjs",
+    "smoke:providers": "node scripts/smoke-providers.mjs"
   },
   "dependencies": {
     "@google/genai": "^3.6.1",
+    "@huggingface/transformers": "^4.3.2",
     "@supabase/supabase-js": "^2.119.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",

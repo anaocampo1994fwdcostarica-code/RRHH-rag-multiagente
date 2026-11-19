@@ -1,4 +1,4 @@
-import { createGeminiProvider } from './geminiProvider.js'
+import { getEmbeddingProvider } from '../llm/providers.js'
 import { createDocumentExtractors } from './documentExtractors.js'
 import { createDocumentIngestionRepository } from './documentIngestionRepository.js'
 import { createDocumentIngestionService } from './documentIngestionService.js'
@@ -13,7 +13,7 @@ export function createDocumentAdminService() {
     const repository = createDocumentIngestionRepository()
     const ingestion = createDocumentIngestionService({
       extractors: createDocumentExtractors(),
-      embeddings: createGeminiProvider(),
+      embeddings: getEmbeddingProvider(),
       repository,
     })
     syncService = createDocumentSyncService({ drive, ingestion, repository })

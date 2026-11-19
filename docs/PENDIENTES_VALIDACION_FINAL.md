@@ -25,6 +25,12 @@
 - Implementar el flujo real de contacto con RRHH detrás del aviso de escalamiento.
 - Medir con Gemini real el p90 de latencia (< 8 s) y la precisión del clasificador con el banco de 45 preguntas (sesión 7).
 
+## Proveedores LLM y embeddings
+
+- DeepSeek + E5 local implementados (ver `docs/DECISION_PROVEEDORES_LLM.md`). Pendiente: `DEEPSEEK_API_KEY` válida (la actual responde 401), repetir `npm run smoke:providers` y correr `npm run eval:bank`.
+- Calibrar `RAG_SIMILARITY_THRESHOLD` (inicial 0.82) en la sesión 4 con los documentos reales y el banco de preguntas.
+- [x] Contraseña de `rrhh_api` rotada (2026-11-19) con `backend/scripts/rotate-rrhh-api-password.mjs` (solo verificador SCRAM); test:data-integration 7/7.
+
 ## Agente de datos (sesión 3)
 
 - [x] Regla de arquitectura aplicada (2026-11-19): las consultas del agente de datos viven en la base (`20261121090000_add_data_agent_functions.sql`: funciones `get_my_*` y `get_absences_today_summary`, SECURITY INVOKER, STABLE, sin identidad como parámetro). El backend solo las invoca. Aplicada en pruebas: estado OK, harness 18/18, test:data-integration 7/7, respuestas de A idénticas.

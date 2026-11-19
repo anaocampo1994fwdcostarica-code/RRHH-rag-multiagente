@@ -92,3 +92,13 @@ test('el repositorio vectorial usa por defecto el umbral configurado para E5 (0.
   await repository.search({}, Array.from({ length: 768 }, () => 0.01))
   assert.equal(parameters.similarity_threshold, 0.82)
 })
+
+test('DeepSeek: DEEPSEEK_BASE_URL configurable (intermediaria compatible con OpenAI), solo https y sin credenciales', async () => {
+  const urls = []
+  const make = (baseUrl) => createDeepseekProvider({ apiKey: SECRET, baseUrl, fetchImpl: async (url) => { urls.push(url); return completion('ok') } })
+  await make('https://gateway.example.test/v1/').generate('x')
+  await make(undefined).generate('x')
+  assert.deepEqual(urls, ['https://gateway.example.test/v1/chat/completions', 'https://api.deepseek.com/chat/completions'])
+  assert.throws(() => make('http://gateway.example.test'), /https/)
+  assert.throws(() => make('https://user:pass@gateway.example.test'), /credentials/)
+})

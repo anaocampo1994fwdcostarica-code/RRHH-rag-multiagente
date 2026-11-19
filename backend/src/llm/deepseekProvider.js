@@ -6,7 +6,16 @@
 //     exige la palabra "json" en el prompt y puede devolver contenido vacío: se reintenta una vez.
 // La clave nunca se registra ni aparece en los errores.
 
-const BASE_URL = 'https://api.deepseek.com'
+const DEFAULT_BASE_URL = 'https://api.deepseek.com'
+
+// DEEPSEEK_BASE_URL permite usar una plataforma intermediaria compatible con OpenAI
+// (por ejemplo https://host o https://host/v1). Solo se acepta https.
+export function resolveBaseUrl(value = DEFAULT_BASE_URL) {
+  const url = new URL(String(value).trim())
+  if (url.protocol !== 'https:') throw new Error('DEEPSEEK_BASE_URL must use https.')
+  if (url.username || url.password) throw new Error('DEEPSEEK_BASE_URL must not contain credentials.')
+  return url.toString().replace(/\/+$/, '')
+}
 const RETRYABLE = new Set([408, 409, 429, 500, 502, 503, 504])
 
 export class LlmProviderError extends Error {
@@ -24,12 +33,14 @@ const sleep = (ms, signal) => new Promise((resolve, reject) => {
 
 export function createDeepseekProvider({
   apiKey = process.env.DEEPSEEK_API_KEY,
+  baseUrl = process.env.DEEPSEEK_BASE_URL || DEFAULT_BASE_URL,
   model = process.env.DEEPSEEK_MODEL ?? 'deepseek-flash',
   timeoutMs = Number(process.env.DEEPSEEK_TIMEOUT_MS ?? 6000),
   maxRetries = 2,
   baseDelayMs = 300,
   fetchImpl = (...args) => globalThis.fetch(...args),
 } = {}) {
+  const endpointBase = resolveBaseUrl(baseUrl)
   async function complete(messages, { json = false, signal, maxTokens = json ? 400 : 800 } = {}) {
     if (!apiKey) throw new LlmProviderError('DeepSeek is not configured.')
     // Un único plazo total para la llamada y sus reintentos; el llamador puede abortar antes.
@@ -40,7 +51,7 @@ export function createDeepseekProvider({
       if (attempt > 0) await sleep(baseDelayMs * 2 ** (attempt - 1), combined)
       let response
       try {
-        response = await fetchImpl(`${BASE_URL}/chat/completions`, {
+        response = await fetchImpl(`${endpointBase}/chat/completions`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({ model, messages, temperature: 0, max_tokens: maxTokens, stream: false, ...(json && { response_format: { type: 'json_object' } }) }),

@@ -121,9 +121,15 @@ const p90 = sorted[Math.ceil(sorted.length * 0.9) - 1]
 const pending = rows.filter((row) => row.policyPending).length
 const restricted = rows.filter((row) => [21, 22].includes(row.number))
 
-// Costo aproximado (USD por millón de tokens, documentación de OpenAI consultada el 2026-11-19):
-// gpt-6-luna 0.1 entrada / 0.5 salida; text-embedding-3-small ≈ 0.02 (derivado de "62.500 páginas por dólar").
-const PRICES = { input: Number(process.env.EVAL_PRICE_INPUT ?? 0.1), output: Number(process.env.EVAL_PRICE_OUTPUT ?? 0.5), embedding: Number(process.env.EVAL_PRICE_EMBEDDING ?? 0.02) }
+// Costo aproximado (USD por millón de tokens). OpenAI (docs 2026-11-19): gpt-6-luna 0.1/0.5, embeddings 0.02.
+// DeepSeek: la página de precios consultada no publica el precio de deepseek-flash; fijar EVAL_PRICE_INPUT /
+// EVAL_PRICE_OUTPUT para estimar el costo. E5 local no tiene costo por token.
+const DEFAULT_PRICES = llm.name === 'openai' ? { input: 0.1, output: 0.5 } : { input: NaN, output: NaN }
+const PRICES = {
+  input: Number(process.env.EVAL_PRICE_INPUT ?? DEFAULT_PRICES.input),
+  output: Number(process.env.EVAL_PRICE_OUTPUT ?? DEFAULT_PRICES.output),
+  embedding: Number(process.env.EVAL_PRICE_EMBEDDING ?? (String(embeddings.name).startsWith('openai') ? 0.02 : 0)),
+}
 const usage = {
   promptTokens: llm.usage?.promptTokens ?? 0,
   completionTokens: llm.usage?.completionTokens ?? 0,
@@ -131,7 +137,9 @@ const usage = {
 }
 const costUsd = (usage.promptTokens * PRICES.input + usage.completionTokens * PRICES.output + usage.embeddingTokens * PRICES.embedding) / 1e6
 const costLine = llm.usage
-  ? `${usage.promptTokens} entrada + ${usage.completionTokens} salida (LLM) · ${usage.embeddingTokens} (embeddings) ≈ USD ${costUsd.toFixed(4)} (${rows.length} consultas; ≈ USD ${(costUsd / rows.length).toFixed(5)} por consulta)`
+  ? Number.isNaN(costUsd)
+    ? `${usage.promptTokens} entrada + ${usage.completionTokens} salida (LLM, ${llm.usage.requests} llamadas) · precio no configurado (EVAL_PRICE_INPUT/OUTPUT)`
+    : `${usage.promptTokens} entrada + ${usage.completionTokens} salida (LLM) · ${usage.embeddingTokens} (embeddings) ≈ USD ${costUsd.toFixed(4)} (${rows.length} consultas; ≈ USD ${(costUsd / rows.length).toFixed(5)} por consulta)`
   : 'el proveedor configurado no reporta uso de tokens'
 
 const report = `# Evaluación del banco base — ${today}

@@ -5,8 +5,8 @@ import { createDeepseekProvider } from './deepseekProvider.js'
 import { createOpenAiEmbeddingProvider, createOpenAiProvider } from './openaiProvider.js'
 
 // Selección de proveedores por variables de entorno:
-//   LLM_PROVIDER        = openai (por defecto) | deepseek | gemini
-//   EMBEDDINGS_PROVIDER = openai (por defecto) | local (E5) | gemini
+//   LLM_PROVIDER        = deepseek (por defecto) | openai | gemini
+//   EMBEDDINGS_PROVIDER = local (E5, por defecto) | openai | gemini
 // DeepSeek, Gemini y E5 local se conservan como alternativas.
 
 let sharedLlm

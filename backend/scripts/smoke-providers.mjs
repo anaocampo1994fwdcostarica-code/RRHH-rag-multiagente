@@ -28,7 +28,9 @@ if (process.env.OPENAI_API_KEY) {
     check(`Modelo de embeddings disponible: ${openaiEmbeddings.model}`, ids.has(openaiEmbeddings.model))
   }
 } else {
-  check('OPENAI_API_KEY presente', false)
+  const required = env.llmProvider === 'openai' || env.embeddingsProvider === 'openai'
+  if (required) check('OPENAI_API_KEY presente', false)
+  else console.log('OpenAI: se omite (no está seleccionado y no hay OPENAI_API_KEY)')
 }
 
 // --- 2. Clasificación con el LLM configurado ---

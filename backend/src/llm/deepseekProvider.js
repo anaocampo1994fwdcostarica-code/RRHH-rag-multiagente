@@ -6,6 +6,8 @@
 //     exige la palabra "json" en el prompt y puede devolver contenido vacío: se reintenta una vez.
 // La clave nunca se registra ni aparece en los errores.
 
+import { createUsageMeter } from './openaiProvider.js'
+
 const DEFAULT_BASE_URL = 'https://api.deepseek.com'
 
 // DEEPSEEK_BASE_URL permite usar una plataforma intermediaria compatible con OpenAI
@@ -39,6 +41,7 @@ export function createDeepseekProvider({
   maxRetries = 2,
   baseDelayMs = 300,
   fetchImpl = (...args) => globalThis.fetch(...args),
+  usage = createUsageMeter(),
 } = {}) {
   const endpointBase = resolveBaseUrl(baseUrl)
   async function complete(messages, { json = false, signal, maxTokens = json ? 400 : 800 } = {}) {
@@ -68,6 +71,7 @@ export function createDeepseekProvider({
         throw lastError
       }
       const body = await response.json().catch(() => null)
+      usage.addChat(body?.usage)
       const content = body?.choices?.[0]?.message?.content?.trim() ?? ''
       // JSON Output puede devolver solo espacios aunque finish_reason sea "stop": se reintenta.
       if (json && !content) { lastError = new LlmProviderError('DeepSeek returned empty JSON content.'); continue }
@@ -79,6 +83,7 @@ export function createDeepseekProvider({
   return {
     name: 'deepseek',
     model,
+    usage: usage.totals,
     async generate(prompt) {
       return complete([{ role: 'user', content: prompt }])
     },

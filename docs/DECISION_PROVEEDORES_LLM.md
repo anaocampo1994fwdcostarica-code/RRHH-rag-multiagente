@@ -1,7 +1,8 @@
 # Decisión de arquitectura: proveedores de LLM y embeddings
 
 - Fecha: 2026-11-19
-- Estado: aceptada (OpenAI). La validación real queda pendiente de una clave válida (ver "Estado de la validación").
+- Estado: **configuración vigente: DeepSeek (LLM) + E5 local (embeddings)**, validada con clave real el 2026-11-19.
+  OpenAI queda implementado como alternativa hasta tener una clave válida (ver "Configuración final").
 - Alcance: backend del portal de RRHH con RAG multiagente (Mini Proyecto #2)
 
 ## Contexto e historia
@@ -11,6 +12,24 @@
    La clave respondía 401 en `api.deepseek.com`.
 3. Se comprobó que la clave empieza con `sk-proj-`: es una **clave de proyecto de OpenAI**. Se decidió usar OpenAI
    para chat y embeddings, y conservar DeepSeek, Gemini y E5 local como alternativas configurables.
+4. La clave de OpenAI siguió respondiendo 401. Se recibió una clave nueva de DeepSeek que sí autentica, así que los
+   valores por defecto pasan a `LLM_PROVIDER=deepseek` y `EMBEDDINGS_PROVIDER=local` mientras OpenAI no funcione.
+
+## Configuración final (2026-11-19)
+
+| Variable | Valor | Nota |
+|---|---|---|
+| `LLM_PROVIDER` | `deepseek` (por defecto en `env.js`) | `openai` y `gemini` siguen disponibles |
+| `EMBEDDINGS_PROVIDER` | `local` (por defecto) | `Xenova/multilingual-e5-base`, 768 dimensiones, sin costo por token |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Si queda vacía se usa este valor |
+| `DEEPSEEK_MODEL` | `deepseek-flash` (por defecto) | Confirmado en `GET /models` |
+| `RAG_SIMILARITY_THRESHOLD` | vacío → 0.82 (E5) | Calibrar en la sesión 4 |
+
+Verificación `GET /models`: host `api.deepseek.com`, **HTTP 200**, modelo `deepseek-flash` **existe**
+(también lista `deepseek-v4-pro`).
+
+La sección "Decisión" de abajo describe la configuración con OpenAI, que vuelve a ser la preferida cuando haya una
+clave válida (`LLM_PROVIDER=openai`, `EMBEDDINGS_PROVIDER=openai` y reindexar los embeddings).
 
 ## Decisión
 
@@ -91,9 +110,23 @@ embeddings (los vectores de modelos distintos no son comparables) y recalibrar e
 
 ## Estado de la validación (2026-11-19)
 
-- Código: 173 pruebas unitarias en verde (Structured Outputs estricto, negativas, reintentos, la clave nunca aparece
-  en errores, `dimensions: 768` y normalización).
-- E5 local: validado con la prueba de humo real.
-- OpenAI: la clave guardada en `backend/.env` responde **HTTP 401 `invalid_api_key`** en `GET /v1/models`.
-  Pendiente: clave válida, `npm run smoke:providers` (conexión, clasificación y comparación con E5) y
-  `npm run eval:bank` (aciertos, p90, preguntas 21 y 22, tokens y costo).
+- Código: 173 pruebas unitarias en verde y lint limpio.
+- `npm run smoke:providers` con DeepSeek + E5: **4/4**. Clasificación correcta de las 3 preguntas de prueba
+  (729–1375 ms); E5: 768 dimensiones, separación 0.0229.
+- `npm run eval:bank` (DeepSeek + E5 + Supabase de pruebas), reporte en `docs/evidencias/eval_banco_2026-11-19.md`:
+
+| Métrica | Resultado |
+|---|---|
+| Aciertos de intención | 26/26 (100 %) |
+| Consultas < 8 s | 6/26 (23 %) — **no cumple** el 90 % |
+| p90 | 14,6 s |
+| Preguntas 21 y 22 (otra persona) | negadas por la capa determinista |
+| Tokens LLM | 23 308 entrada + 2 330 salida en 29 llamadas (≈ 900 por consulta) |
+| Costo | no calculado: la página de precios consultada no publica el precio de `deepseek-flash`; se estima con `EVAL_PRICE_INPUT`/`EVAL_PRICE_OUTPUT`. Embeddings E5: 0 |
+
+- **La latencia viene de la base de datos, no del LLM.** Con la base inaccesible, las mismas consultas tardaron
+  1–3 s, y la 21, que no llama al LLM, pasó de 9 ms a 3,9 s con la base. Medición desde este equipo al pooler de
+  Supabase: ≈ 500 ms por consulta y ≈ 1,8 s por transacción con `SET LOCAL ROLE`. Pendiente: reducir viajes a la
+  base por consulta (agrupar el registro y las funciones en una transacción) y medir desde un servidor en la región
+  de Supabase.
+- OpenAI: la clave sigue respondiendo **HTTP 401 `invalid_api_key`**.

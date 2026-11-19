@@ -41,9 +41,9 @@ export const env = {
   supabasePublishableKey: optionalValue('SUPABASE_PUBLISHABLE_KEY'),
   databaseUrl: optionalValue('DATABASE_URL'),
   databaseSslCaFile: optionalValue('DATABASE_SSL_CA_FILE'),
-  llmProvider: optionalValue('LLM_PROVIDER') ?? 'openai',
-  embeddingsProvider: optionalValue('EMBEDDINGS_PROVIDER') ?? 'openai',
-  ragSimilarityThreshold: parseThreshold(optionalValue('RAG_SIMILARITY_THRESHOLD'), optionalValue('EMBEDDINGS_PROVIDER') ?? 'openai'),
+  llmProvider: optionalValue('LLM_PROVIDER') ?? 'deepseek',
+  embeddingsProvider: optionalValue('EMBEDDINGS_PROVIDER') ?? 'local',
+  ragSimilarityThreshold: parseThreshold(optionalValue('RAG_SIMILARITY_THRESHOLD'), optionalValue('EMBEDDINGS_PROVIDER') ?? 'local'),
 }
 
 function parseThreshold(value, embeddingsProvider) {

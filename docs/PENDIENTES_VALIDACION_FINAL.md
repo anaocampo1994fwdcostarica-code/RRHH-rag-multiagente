@@ -30,7 +30,7 @@
 - Mejora opcional: alcance `other` (RRHH consultando datos de otra persona por el chat). Hoy responde "no disponible" y ofrece escalar; requeriría herramientas con identificación explícita del colaborador, validada contra `employees.read` y auditada.
 - `backend/.env` ya tiene `DATABASE_URL` (`rrhh_api`) y `DATABASE_SSL_CA_FILE`; `chat_query_logs` y el agente de datos dependen de ellos.
 - Probar en el navegador con `rls.employee.a` y revisar `chat_query_logs` (pasos en la sesión 3).
-- Datos de prueba: `RLS-TEST-EMP-A` y `-B` tienen `hired_on = 2026-11-17` (creados por el harness), así que el seed les asigna 2 días proporcionales y su vacación demo aprobada (hoy − 35 días) cae antes del ingreso. La pregunta 2 con A responde "Te quedan 0 días… Has tomado 2 de los 2 asignados". Si se quiere una demo más realista, ajustar en el seed su `hired_on` o excluirlos de la vacación demo.
+- [x] Datos demo de A y B corregidos en el seed (ingreso 2024-03-04 y 2025-06-16; A con 9 días, B con 21). V1: personas con más de 20 días = 5.
 
 ## Datos operativos y registro del chat (sesión 2)
 

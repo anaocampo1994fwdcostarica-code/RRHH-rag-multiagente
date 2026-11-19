@@ -43,12 +43,15 @@ create or replace function pg_temp.demo_monday(p_date date) returns date
 language sql immutable as $$ select p_date - (extract(isodow from p_date)::integer - 1) $$;
 
 -- 1. Usuarios de prueba a vincular (edita los correos si es necesario).
-create temporary table demo_test_users (email text, employee_code text, department_code text, full_name text) on commit drop;
+-- hired_on fija una fecha de ingreso realista para A y B (el harness RLS no depende de ella):
+--   A (2024-03-04) → 14 días en el periodo actual, 5 tomados → 9 disponibles.
+--   B (2025-06-16) → 8 días proporcionales del periodo anterior sin usar + 13 del actual → 21 (> 20).
+create temporary table demo_test_users (email text, employee_code text, department_code text, full_name text, hired_on date) on commit drop;
 insert into demo_test_users values
-  ('rls.employee.a@test.invalid', 'RLS-TEST-EMP-A', 'DEMO_TI', 'Colaborador de prueba A (demo)'),
-  ('rls.employee.b@test.invalid', 'RLS-TEST-EMP-B', 'DEMO_COM', 'Colaborador de prueba B (demo)'),
-  ('rls.hr@test.invalid', 'DEMO-011', null, null),
-  ('rls.admin@test.invalid', 'DEMO-002', null, null);
+  ('rls.employee.a@test.invalid', 'RLS-TEST-EMP-A', 'DEMO_TI', 'Colaborador de prueba A (demo)', date '2024-03-04'),
+  ('rls.employee.b@test.invalid', 'RLS-TEST-EMP-B', 'DEMO_COM', 'Colaborador de prueba B (demo)', date '2025-06-16'),
+  ('rls.hr@test.invalid', 'DEMO-011', null, null, null),
+  ('rls.admin@test.invalid', 'DEMO-002', null, null, null);
 
 -- 2. Departamentos (6) y puestos.
 insert into public.departments (id, code, name, description)
@@ -163,14 +166,16 @@ begin
       insert into public.employees as e (employee_code, profile_id, full_name, department_id, position_id, manager_employee_id, employment_status, hired_on)
       select r.employee_code, v_profile, r.full_name, d.id, pos.id,
         (select id from public.employees where employee_code = case r.department_code when 'DEMO_TI' then 'DEMO-028' else 'DEMO-046' end),
-        'active', date '2023-02-01'
+        'active', r.hired_on
       from public.departments d
       join public.positions pos on pos.code = d.code || '_ANALISTA'
       where d.code = r.department_code
       on conflict (employee_code) do update set
         profile_id = coalesce(e.profile_id, excluded.profile_id),
         full_name = coalesce(e.full_name, excluded.full_name),
-        manager_employee_id = coalesce(e.manager_employee_id, excluded.manager_employee_id);
+        manager_employee_id = coalesce(e.manager_employee_id, excluded.manager_employee_id),
+        -- Sobrescribe la fecha que dejó el harness al crearlos: la demo necesita un ingreso realista.
+        hired_on = excluded.hired_on;
     else
       update public.employees set profile_id = v_profile
       where employee_code = r.employee_code and (profile_id is null or profile_id = v_profile);
@@ -283,9 +288,10 @@ select s.employee_id, 'draft', 'vacaciones', pg_temp.demo_today() + 30 + s.i % 1
 from demo_scope s
 where s.i % 7 = 6 and not s.is_exit and not s.is_test_user;
 
--- 7.10 Usuarios de prueba: vacaciones aprobadas, pendiente antigua y permiso del próximo viernes (pregunta 18).
+-- 7.10 Usuarios de prueba: vacaciones aprobadas (posteriores al ingreso), pendiente antigua y permiso del
+-- próximo viernes (pregunta 18). A: lunes a viernes (5 días hábiles). B: un solo día.
 insert into demo_requests
-select s.employee_id, 'test_vac', 'vacaciones', m.start_date, m.start_date + 1,
+select s.employee_id, 'test_vac', 'vacaciones', m.start_date, m.start_date + case s.code when 'RLS-TEST-EMP-A' then 4 else 0 end,
   'approved', pg_temp.demo_cr_ts(m.start_date - 9, '09:00'), pg_temp.demo_cr_ts(m.start_date - 7, '12:00'), '[DEMO] Vacaciones de prueba'
 from demo_scope s
 cross join lateral (select pg_temp.demo_monday(pg_temp.demo_today() - 35) as start_date) m
@@ -330,7 +336,7 @@ from (
   union
   -- Personas con periodo anterior sin disfrutar (acumulan más de 20 días).
   select employee_id, extract(year from pg_temp.demo_today())::integer - 1 from demo_scope
-  where code in ('DEMO-007', 'DEMO-016', 'DEMO-025', 'DEMO-034')
+  where code in ('DEMO-007', 'DEMO-016', 'DEMO-025', 'DEMO-034', 'RLS-TEST-EMP-B')
 ) as p
 join demo_scope s on s.employee_id = p.employee_id
 left join demo_taken t on t.employee_id = p.employee_id and t.period = p.period;

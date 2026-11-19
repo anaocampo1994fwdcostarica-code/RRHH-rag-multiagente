@@ -105,3 +105,20 @@ approved 26 · cancelled 7 · draft 7 · in_review 8 · rejected 8 · submitted 
 ## Pendiente
 
 - Prueba del backend con `chat_query_logs` (requiere `DATABASE_URL` de `rrhh_api` y sesión en el frontend).
+
+## Actualización — datos demo de A y B (2026-11-19)
+
+El harness había creado `RLS-TEST-EMP-A` y `-B` con `hired_on = 2026-11-17`, lo que dejaba a A con "0 días, 2 de 2" y vacaciones aprobadas anteriores al ingreso. El seed ahora fija fechas de ingreso realistas (el harness RLS no depende de `hired_on`):
+
+| Colaborador | Ingreso | Periodo | Asignados | Tomados | Disponibles |
+|---|---|---|---|---|---|
+| RLS-TEST-EMP-A | 2024-03-04 | 2026 | 14 | 5 | 9 |
+| RLS-TEST-EMP-B | 2025-06-16 | 2025 | 8 (proporcional) | 0 | 8 |
+| RLS-TEST-EMP-B | 2025-06-16 | 2026 | 14 | 1 | 13 |
+
+Vacaciones aprobadas de A (12–16 oct 2026) y B (12 oct 2026), posteriores al ingreso. B acumula 21 días (> 20).
+
+- Seed reaplicado dos veces: V1 idéntico entre ejecuciones; V2 = 0 filas.
+- **Cambio en V1:** `personas_con_mas_de_20_dias_acumulados` pasa de 4 a **5** (se suma B). El resto de métricas no cambia.
+- Harness RLS: **18/18** (`rls-report-2026-11-19T19-39-37-381Z.json`).
+- `npm run test:data-integration`: 7/7; pregunta 2 de A: "Te quedan 9 días de vacaciones disponibles en el periodo 2026. Has tomado 5 de los 14 asignados."

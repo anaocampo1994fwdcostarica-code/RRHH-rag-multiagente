@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs'
 // Carga un prompt versionado desde backend/src/agents/prompts/<nombre>.md.
 // El encabezado (--- ... ---) aporta metadatos como la versión, que se registran con cada consulta.
 export function loadPrompt(name, { readFile = (url) => readFileSync(url, 'utf8') } = {}) {
-  if (!/^[a-z][a-z0-9_-]*$/.test(name)) throw new TypeError('Invalid prompt name.')
+  // Solo nombres simples (sin "/", "." ni "..") para que nunca se lea fuera de esta carpeta.
+  if (!/^[a-z][A-Za-z0-9_-]*$/.test(name)) throw new TypeError('Invalid prompt name.')
   const raw = readFile(new URL(`./${name}.md`, import.meta.url))
   const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/)
   const metadata = {}

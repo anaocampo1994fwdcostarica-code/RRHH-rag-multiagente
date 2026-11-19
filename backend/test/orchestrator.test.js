@@ -3,7 +3,7 @@ import test from 'node:test'
 import { createOrchestrator } from '../src/agents/orchestrator.js'
 import { createIntentClassifier, fallbackClassification, parseClassification } from '../src/agents/intentClassifier.js'
 import { evaluateQuerySafety } from '../src/agents/safetyGuard.js'
-import { createDataAgentStub } from '../src/agents/dataAgent.js'
+import { createDataAgent } from '../src/agents/dataAgent.js'
 import { loadPrompt } from '../src/agents/prompts/index.js'
 
 const auth = Object.freeze({ userId: '11111111-1111-4111-8111-111111111111', role: 'authenticated' })
@@ -279,7 +279,7 @@ test('cada consulta se registra con intención, agente, citas, resolución, esca
   assert.equal(policyLog.escalated, false)
   assert.equal(typeof policyLog.latencyMs, 'number')
   assert.ok(!Number.isNaN(Date.parse(policyLog.createdAt)))
-  assert.equal(policyLog.promptVersion, loadPrompt('orchestrator').version)
+  assert.equal(policyLog.promptVersion, `orq@${loadPrompt('orchestrator').version}`)
   assert.equal(restrictedLog.intent, 'restricted')
   assert.equal(restrictedLog.guardReason, 'third_party_subject')
 })
@@ -296,13 +296,11 @@ test('fallos de memoria, rol o registro no impiden responder (el rol falla cerra
   assert.equal((await orchestrator.answer(auth, BANK[24][1])).evidenceStatus, 'restricted')
 })
 
-test('el prompt del orquestador está versionado y el stub de datos valida el alcance', async () => {
-  const prompt = loadPrompt('orchestrator')
-  assert.match(prompt.version, /^\d+\.\d+\.\d+$/)
-  assert.match(prompt.text, /restricted/)
-  const stub = createDataAgentStub()
-  assert.equal((await stub.answer(auth, { question: 'x', scope: 'self' })).evidenceStatus, 'unavailable')
-  await assert.rejects(stub.answer(auth, { question: 'x', scope: 'todos' }))
+test('los prompts están versionados y el agente de datos valida el alcance', async () => {
+  for (const name of ['orchestrator', 'dataAgent']) assert.match(loadPrompt(name).version, /^\d+\.\d+\.\d+$/)
+  assert.match(loadPrompt('orchestrator').text, /restricted/)
+  const agent = createDataAgent({ repository: {} })
+  await assert.rejects(agent.answer(auth, { question: 'x', scope: 'todos' }))
 })
 
 // Instituciones, feriados y leyes de Costa Rica no son nombres de personas.

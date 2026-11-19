@@ -4,7 +4,7 @@ import { createVectorRepository } from '../rag/vectorRepository.js'
 import { createChatQueryLogRepository } from '../repositories/chatQueryLogRepository.js'
 import { permissionsRepository } from '../repositories/permissionsRepository.js'
 import { createConversationRepository } from './conversationRepository.js'
-import { assertDataAgent, createDataAgentStub } from './dataAgent.js'
+import { assertDataAgent, createDataAgent } from './dataAgent.js'
 import { createIntentClassifier } from './intentClassifier.js'
 import { evaluateQuerySafety } from './safetyGuard.js'
 
@@ -25,8 +25,11 @@ function buildResponse({ answer, intent, agent, evidenceStatus, citations = [], 
   return { answer, intent, agent, evidenceStatus, citations, escalationOffered }
 }
 
+let sharedGemini
+const getGemini = () => (sharedGemini ??= createGeminiProvider())
+
 function createDefaultDependencies() {
-  const gemini = createGeminiProvider()
+  const gemini = getGemini()
   return {
     policyAgent: createPolicyAgent({ embeddings: gemini, vectors: createVectorRepository(), llm: gemini }),
     classifier: createIntentClassifier({ llm: gemini }),
@@ -60,16 +63,16 @@ function combineMixed(dataResult, policyResult) {
   const evidenceStatus = statuses.every((status) => status === 'supported') ? 'supported' : statuses.some((status) => status === 'supported') ? 'partial' : policyResult.evidenceStatus
   return {
     evidenceStatus,
-    answer: `**Tus datos:** ${dataResult.answer}\n\n**Lo que dice la política:** ${policyResult.answer}`,
+    answer: `Tus datos: ${dataResult.answer}\n\nLo que dice la política: ${policyResult.answer}`,
     citations: policyResult.citations,
-    escalationOffered: Boolean(policyResult.escalationOffered),
+    escalationOffered: Boolean(policyResult.escalationOffered || dataResult.escalationOffered),
   }
 }
 
 export function createOrchestrator({
   policyAgent,
   classifier,
-  dataAgent = createDataAgentStub(),
+  dataAgent = createDataAgent({ llm: getGemini() }),
   conversations = createConversationRepository(),
   resolveIsHr = (auth) => permissionsRepository.hasPermission(auth, 'employees.read'),
   queryLog = createChatQueryLogRepository(),
@@ -166,7 +169,10 @@ export function createOrchestrator({
           escalated: result.escalationOffered,
           guardReason: decision.guardReason ?? null,
           classifierFallback: decision.classifierFallback ?? false,
-          promptVersion: classifier.promptVersion ?? null,
+          promptVersion: [
+            classifier.promptVersion && `orq@${classifier.promptVersion}`,
+            ['data', 'data+policy_rag'].includes(result.agent) && dataAgent.promptVersion && `data@${dataAgent.promptVersion}`,
+          ].filter(Boolean).join('+').slice(0, 40) || null,
           latencyMs,
           createdAt: new Date(startedAt).toISOString(),
         }, { auth })).catch(ignoreFailure)

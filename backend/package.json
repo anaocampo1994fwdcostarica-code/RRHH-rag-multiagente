@@ -8,7 +8,8 @@
     "start": "node server.js",
     "test": "node --test",
     "test:rls-integration": "node scripts/run-rls-integration.mjs",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:data-integration": "node scripts/run-data-agent-integration.mjs"
   },
   "dependencies": {
     "@google/genai": "^3.6.1",

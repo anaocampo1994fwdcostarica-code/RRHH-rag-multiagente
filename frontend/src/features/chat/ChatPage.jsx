@@ -1,6 +1,15 @@
 import { useState } from 'react'
 import { apiClient } from '../../api/client.js'
 import { isSafeCitationUrl } from './citationUrl.js'
+import { buildChatRequestBody, ESCALATION_PROMPT, nextConversationId, shouldOfferEscalation } from './chatState.js'
+
+// Por ahora solo visual: todavía no existe el flujo de contacto con RRHH.
+function EscalationNotice() {
+  return <div role="status" className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+    <p className="font-medium">{ESCALATION_PROMPT}</p>
+    <p className="mt-1 text-amber-800">Puedes escribir directamente al equipo de Recursos Humanos con tu consulta.</p>
+  </div>
+}
 
 function CitationList({ citations = [] }) {
   if (!citations.length) return null
@@ -17,6 +26,7 @@ function ChatPage() {
   const [question, setQuestion] = useState('')
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
+  const [conversationId, setConversationId] = useState(null)
 
   async function send(event) {
     event.preventDefault()
@@ -25,7 +35,8 @@ function ChatPage() {
     setQuestion('')
     setLoading(true)
     try {
-      const response = await apiClient.request('/chat', { method: 'POST', body: { question: text } })
+      const response = await apiClient.request('/chat', { method: 'POST', body: buildChatRequestBody(text, conversationId) })
+      setConversationId((current) => nextConversationId(current, response.data))
       setMessages((current) => [...current, { question: text, ...response.data }])
     } catch {
       setMessages((current) => [...current, { question: text, answer: 'No fue posible procesar la consulta.', evidenceStatus: 'unavailable', citations: [] }])
@@ -34,7 +45,7 @@ function ChatPage() {
     }
   }
 
-  return <div className="mx-auto max-w-3xl"><section className="rounded-lg bg-white p-6 shadow-sm"><h1 className="text-2xl font-semibold">Chat IA</h1><p className="mt-2 text-sm text-slate-600">Las respuestas documentales requieren fuentes verificables.</p><div className="mt-6 space-y-4">{messages.map((message, index) => <div key={index}><p className="font-medium">Tú: {message.question}</p><p className="mt-1 rounded bg-slate-50 p-3">{message.answer}</p><p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-500">Evidencia: {message.evidenceStatus ?? 'unavailable'}</p><CitationList citations={message.citations} /></div>)}</div><form onSubmit={send} className="mt-6 flex gap-2"><input value={question} onChange={(event) => setQuestion(event.target.value)} className="flex-1 rounded border p-2" placeholder="Escribe tu consulta" /><button disabled={loading} className="rounded bg-[#0f4c5c] px-4 text-white disabled:opacity-60">{loading ? 'Procesando…' : 'Enviar'}</button></form></section></div>
+  return <div className="mx-auto max-w-3xl"><section className="rounded-lg bg-white p-6 shadow-sm"><h1 className="text-2xl font-semibold">Chat IA</h1><p className="mt-2 text-sm text-slate-600">Las respuestas documentales requieren fuentes verificables.</p><div className="mt-6 space-y-4">{messages.map((message, index) => <div key={index}><p className="font-medium">Tú: {message.question}</p><p className="mt-1 whitespace-pre-line rounded bg-slate-50 p-3">{message.answer}</p><p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-500">Evidencia: {message.evidenceStatus ?? 'unavailable'}</p><CitationList citations={message.citations} />{shouldOfferEscalation(message) ? <EscalationNotice /> : null}</div>)}</div><form onSubmit={send} className="mt-6 flex gap-2"><input value={question} onChange={(event) => setQuestion(event.target.value)} className="flex-1 rounded border p-2" placeholder="Escribe tu consulta" /><button disabled={loading} className="rounded bg-[#0f4c5c] px-4 text-white disabled:opacity-60">{loading ? 'Procesando…' : 'Enviar'}</button></form></section></div>
 }
 
 export default ChatPage

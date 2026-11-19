@@ -20,9 +20,17 @@
 ## Orquestador (sesión 1)
 
 - El rol RRHH se resuelve con `has_permission('employees.read')`; confirmar que ese permiso solo lo tienen `hr`/`admin` en los datos reales.
-- Conectar el agente de datos real (sesión 3) respetando el contrato `answer(auth, { question, scope })`; hoy es un stub.
-- Enviar `conversationId` desde `ChatPage.jsx` (el backend lo devuelve en cada respuesta) y mostrar la oferta de escalar (`escalationOffered`).
+- [x] Agente de datos real (sesión 3): herramientas SQL fijas con `withUserTransaction` + filtro `current_employee_id()`, plantillas deterministas; integración real 7/7 (`npm run test:data-integration`).
+- [x] `ChatPage.jsx` envía y conserva `conversationId` y muestra el aviso "¿Quieres que RRHH te contacte?" (solo visual).
+- Implementar el flujo real de contacto con RRHH detrás del aviso de escalamiento.
 - Medir con Gemini real el p90 de latencia (< 8 s) y la precisión del clasificador con el banco de 45 preguntas (sesión 7).
+
+## Agente de datos (sesión 3)
+
+- Mejora opcional: alcance `other` (RRHH consultando datos de otra persona por el chat). Hoy responde "no disponible" y ofrece escalar; requeriría herramientas con identificación explícita del colaborador, validada contra `employees.read` y auditada.
+- `backend/.env` ya tiene `DATABASE_URL` (`rrhh_api`) y `DATABASE_SSL_CA_FILE`; `chat_query_logs` y el agente de datos dependen de ellos.
+- Probar en el navegador con `rls.employee.a` y revisar `chat_query_logs` (pasos en la sesión 3).
+- Datos de prueba: `RLS-TEST-EMP-A` y `-B` tienen `hired_on = 2026-11-17` (creados por el harness), así que el seed les asigna 2 días proporcionales y su vacación demo aprobada (hoy − 35 días) cae antes del ingreso. La pregunta 2 con A responde "Te quedan 0 días… Has tomado 2 de los 2 asignados". Si se quiere una demo más realista, ajustar en el seed su `hired_on` o excluirlos de la vacación demo.
 
 ## Datos operativos y registro del chat (sesión 2)
 

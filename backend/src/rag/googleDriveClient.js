@@ -8,6 +8,13 @@ export const supportedMimeTypes = new Set([
   'application/vnd.google-apps.spreadsheet',
 ])
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Escapa un valor para la sintaxis q de Drive: primero la barra invertida y luego la comilla simple. */
+export function escapeQueryValue(value) {
+  return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+}
+
 function required(value, label) {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`Missing ${label}.`)
   return value.trim()
@@ -19,6 +26,7 @@ export function createGoogleDriveClient({
   folderId = process.env.GOOGLE_DRIVE_FOLDER_ID,
   googleApi = google,
   retries = 2,
+  backoffMs = 500,
 } = {}) {
   let drive
   let sheets
@@ -35,10 +43,17 @@ export function createGoogleDriveClient({
     return { drive, sheets }
   }
 
+  // Reintenta solo errores transitorios (red, 429 y 5xx) con espera creciente; un 4xx (permiso, no existe) falla de inmediato.
   async function retry(operation) {
     let failure
     for (let attempt = 0; attempt <= retries; attempt += 1) {
-      try { return await operation() } catch (error) { failure = error }
+      try { return await operation() } catch (error) {
+        failure = error
+        const status = Number(error?.response?.status ?? error?.code)
+        const transient = !Number.isInteger(status) || status === 429 || status >= 500
+        if (!transient || attempt === retries) break
+        await sleep(backoffMs * 2 ** attempt)
+      }
     }
     throw failure
   }
@@ -57,7 +72,7 @@ export function createGoogleDriveClient({
         let pageToken
         do {
           const result = await retry(() => clients().drive.files.list({
-            q: `'${folder.id.replace(/'/g, "\\'")}' in parents and trashed = false`,
+            q: `'${escapeQueryValue(folder.id)}' in parents and trashed = false`,
             pageSize: 1000,
             pageToken,
             supportsAllDrives: true,
@@ -95,6 +110,32 @@ export function createGoogleDriveClient({
       return result.data
     },
 
+    // Carpeta raíz y todas sus subcarpetas: Map id -> ruta ('' para la raíz). Sirve para saber si un cambio
+    // sigue "dentro" y en qué subcarpeta quedó.
+    async listFolderIds() {
+      const rootId = required(folderId, 'GOOGLE_DRIVE_FOLDER_ID')
+      const folders = new Map([[rootId, '']])
+      const queue = [rootId]
+      while (queue.length) {
+        const parent = queue.shift()
+        let pageToken
+        do {
+          const result = await retry(() => clients().drive.files.list({
+            q: `'${escapeQueryValue(parent)}' in parents and mimeType = '${FOLDER_MIME}' and trashed = false`,
+            pageSize: 1000, pageToken, supportsAllDrives: true, includeItemsFromAllDrives: true, fields: 'nextPageToken,files(id,name)',
+          }))
+          for (const folder of result.data.files ?? []) {
+            if (folders.has(folder.id)) continue
+            const parentPath = folders.get(parent)
+            folders.set(folder.id, parentPath ? `${parentPath}/${folder.name}` : folder.name)
+            queue.push(folder.id)
+          }
+          pageToken = result.data.nextPageToken
+        } while (pageToken)
+      }
+      return folders
+    },
+
     async getFolder() {
       const id = required(folderId, 'GOOGLE_DRIVE_FOLDER_ID')
       return (await retry(() => clients().drive.files.get({ fileId: id, fields: 'id,name,mimeType', supportsAllDrives: true }))).data
@@ -105,7 +146,7 @@ export function createGoogleDriveClient({
     },
 
     async downloadPdf(id) {
-      const result = await retry(() => clients().drive.files.get({ fileId: id, alt: 'media' }, { responseType: 'arraybuffer' }))
+      const result = await retry(() => clients().drive.files.get({ fileId: id, alt: 'media', supportsAllDrives: true }, { responseType: 'arraybuffer' }))
       return Buffer.from(result.data)
     },
 

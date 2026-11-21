@@ -37,4 +37,6 @@ console.log(`Carpeta raíz: ${folder.name}`)
 console.table(rows.map(({ mime: _mime, ...r }) => r))
 const count = (t) => rows.filter((r) => r.tipo === t).length
 console.log(`Total: ${rows.length} | Google Doc: ${count('Google Doc')} | PDF: ${count('PDF')} | Google Sheets: ${count('Google Sheets')} | legibles: ${rows.filter((r) => r.legible === 'sí').length}`)
-if (rows.length !== 11) process.exitCode = 1
+// EXPECTED_DRIVE_FILES (opcional) permite avisar si faltan archivos; por defecto solo falla si alguno no se puede leer.
+const expected = Number(process.env.EXPECTED_DRIVE_FILES ?? NaN)
+if ((Number.isInteger(expected) && rows.length !== expected) || rows.some((r) => r.legible !== 'sí')) process.exitCode = 1

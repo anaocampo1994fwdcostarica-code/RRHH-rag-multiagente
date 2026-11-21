@@ -20,6 +20,9 @@ export function parseSpanishDate(text) {
   if (!match) return null
   const month = MONTHS.indexOf(match[2].toLowerCase())
   if (month < 0) return null
+  // Rechaza fechas imposibles ("31 de febrero"), que Postgres no aceptaría.
+  const date = new Date(Date.UTC(Number(match[3]), month, Number(match[1])))
+  if (date.getUTCMonth() !== month || date.getUTCDate() !== Number(match[1])) return null
   return `${match[3]}-${String(month + 1).padStart(2, '0')}-${match[1].padStart(2, '0')}`
 }
 
@@ -77,7 +80,8 @@ export function parseMarkdownPolicy(markdown) {
 
 // --- PDF ------------------------------------------------------------------------------------------
 
-const PDF_NOISE = [/^--\s*\d+\s+of\s+\d+\s*--$/i, /·.*Vigente desde/i]
+// Pies de página: "Empresa · Documento · Código · Versión · Vigente desde el 1 de enero" + "de 2026" en otra línea.
+const PDF_NOISE = [/^--\s*\d+\s+of\s+\d+\s*--$/i, /·.*Vigente desde/i, /^(de\s+)?\d{4}$/i]
 
 export function parsePdfPolicy(text) {
   const lines = text.replace(/\r\n?/g, '\n').split('\n').map((line) => line.replace(/\s+$/, '')).filter((line) => !PDF_NOISE.some((pattern) => pattern.test(line.trim())))
@@ -169,9 +173,24 @@ function blocksOf(text) {
   return blocks
 }
 
+// Una línea de texto más larga que el límite se parte por frases (y, si aun así no cabe, por palabras).
+function splitLongLine(line, max) {
+  if (line.length <= max) return [line]
+  const pieces = []
+  let current = ''
+  for (const sentence of line.match(/[^.!?]+[.!?]*\s*/g) ?? [line]) {
+    for (const part of sentence.length > max ? sentence.match(new RegExp(`.{1,${max}}(\\s|$)`, 'g')) ?? [sentence] : [sentence]) {
+      if (current && (current + part).length > max) { pieces.push(current.trim()); current = '' }
+      current += part
+    }
+  }
+  if (current.trim()) pieces.push(current.trim())
+  return pieces
+}
+
 // Divide un bloque demasiado grande por líneas (las tablas se parten por filas y repiten el encabezado).
 function splitOversized(block, max) {
-  const lines = block.split('\n')
+  const lines = block.split('\n').flatMap((line) => (/^\s*\|/.test(line) ? [line] : splitLongLine(line, max)))
   const isTable = /^\s*\|/.test(lines[0])
   const header = isTable && lines.length > 2 && /^\s*\|\s*:?-/.test(lines[1]) ? lines.slice(0, 2) : []
   const body = header.length ? lines.slice(2) : lines

@@ -15,7 +15,9 @@
     "drive:list": "node scripts/list-drive.mjs",
     "configure:drive-env": "node scripts/configure-drive-env.mjs",
     "ingest:drive": "node scripts/ingest-drive.mjs",
-    "calibrate:threshold": "node scripts/calibrate-threshold.mjs"
+    "calibrate:threshold": "node scripts/calibrate-threshold.mjs",
+    "sync:drive": "node scripts/sync-drive.mjs",
+    "embeddings:rebuild": "node scripts/rebuild-embeddings.mjs"
   },
   "dependencies": {
     "@google/genai": "^3.6.1",

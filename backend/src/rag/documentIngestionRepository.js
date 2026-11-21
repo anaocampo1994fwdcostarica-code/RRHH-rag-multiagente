@@ -23,7 +23,7 @@ export function createDocumentIngestionRepository({ createDataClient = createUse
         const rows = payload.chunks.map((chunk, index) => ({ document_version_id: version.id, chunk_index: index, content: chunk.content, section: chunk.section, token_count: chunk.tokenCount }))
         const { data: storedChunks, error: chunkError } = await client.from('document_chunks').insert(rows).select('id,chunk_index')
         throwDataApiError(chunkError)
-        const embeddingRows = storedChunks.map((chunk) => ({ document_chunk_id: chunk.id, embedding: payload.chunks[chunk.chunk_index].embedding, model_name: 'gemini-embedding-001' }))
+        const embeddingRows = storedChunks.map((chunk) => ({ document_chunk_id: chunk.id, embedding: payload.chunks[chunk.chunk_index].embedding, model_name: payload.embeddingModel ?? 'unknown' }))
         const { error: embeddingError } = await client.from('document_chunk_embeddings').insert(embeddingRows)
         throwDataApiError(embeddingError)
         const { error: completeError } = await client.from('document_versions').update({ processing_status: 'processed', processed_at: new Date().toISOString(), processing_error: null }).eq('id', version.id)

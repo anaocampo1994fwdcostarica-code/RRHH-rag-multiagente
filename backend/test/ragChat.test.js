@@ -34,7 +34,7 @@ test('the policy agent uses injected providers and derives citations only from r
   const response = await agent.answer(auth, '¿Cuál es la política de vacaciones?')
   assert.equal(receivedAuth, auth)
   assert.equal(response.evidenceStatus, 'supported')
-  assert.deepEqual(response.citations, [{ documentId: 'document-1', documentTitle: 'Política de vacaciones', section: 'Solicitud', version: '2', url: 'https://drive.google.com/open?id=allowed' }])
+  assert.deepEqual(response.citations, [{ documentId: 'document-1', documentTitle: 'Política de vacaciones', documentCode: null, section: 'Solicitud', version: '2', url: 'https://drive.google.com/open?id=allowed' }])
   assert.equal(JSON.stringify(response).includes('allowed'), true)
 })
 
@@ -112,4 +112,28 @@ test('the chat controller requires a bounded question and forwards verified iden
   let conversationError
   await controller({ body: { question: 'hola', conversationId: 'no-es-uuid' }, auth }, createResponse(), (nextError) => { conversationError = nextError })
   assert.equal(conversationError.statusCode, 400)
+})
+
+test('policy agent returns not-found with escalation when the model reports SIN_EVIDENCIA', async () => {
+  const { createPolicyAgent } = await import('../src/rag/policyAgent.js')
+  const agent = createPolicyAgent({
+    embeddings: { embed: async () => [0.1] },
+    vectors: { search: async () => [{ document_id: 'd1', document_title: 'POL-06 Beneficios', section: '3. Bonos', content: 'Bono escolar.' }] },
+    llm: { generate: async () => 'SIN_EVIDENCIA' },
+  })
+  const result = await agent.answer({}, '¿Hay bono por mascotas?')
+  assert.equal(result.evidenceStatus, 'insufficient')
+  assert.equal(result.escalationOffered, true)
+  assert.deepEqual(result.citations, [])
+})
+
+test('policy agent cites only the fragments referenced by the model and always at least one', async () => {
+  const { createPolicyAgent } = await import('../src/rag/policyAgent.js')
+  const chunks = [
+    { document_id: 'd1', document_title: 'POL-01', section: '2. Días', content: 'a' },
+    { document_id: 'd2', document_title: 'POL-05', section: '4. Pagos', content: 'b' },
+  ]
+  const make = (text) => createPolicyAgent({ embeddings: { embed: async () => [0] }, vectors: { search: async () => chunks }, llm: { generate: async () => text } })
+  assert.deepEqual((await make('Se paga el día 15 [2].').answer({}, 'q')).citations.map((c) => c.documentId), ['d2'])
+  assert.deepEqual((await make('Respuesta sin marcas.').answer({}, 'q')).citations.map((c) => c.documentId), ['d1'])
 })

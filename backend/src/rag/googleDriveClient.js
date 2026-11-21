@@ -1,6 +1,8 @@
 import { google } from 'googleapis'
 
-const supportedMimeTypes = new Set([
+const FOLDER_MIME = 'application/vnd.google-apps.folder'
+
+export const supportedMimeTypes = new Set([
   'application/pdf',
   'application/vnd.google-apps.document',
   'application/vnd.google-apps.spreadsheet',
@@ -42,26 +44,47 @@ export function createGoogleDriveClient({
   }
 
   return {
-    async listFiles() {
-      const activeFolderId = required(folderId, 'GOOGLE_DRIVE_FOLDER_ID')
+    // Recorre la carpeta y sus subcarpetas (BFS). Cada archivo lleva folderPath con la subcarpeta de origen.
+    async listFiles({ recursive = true, includeUnsupported = false } = {}) {
+      const rootId = required(folderId, 'GOOGLE_DRIVE_FOLDER_ID')
       const files = []
-      let pageToken
-      do {
-        const result = await retry(() => clients().drive.files.list({
-          q: `'${activeFolderId.replace(/'/g, "\\'")}' in parents and trashed = false`,
-          pageSize: 1000,
-          pageToken,
-          fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,md5Checksum,trashed,parents)',
-          orderBy: 'modifiedTime desc',
-        }))
-        files.push(...(result.data.files ?? []).filter((file) => supportedMimeTypes.has(file.mimeType)))
-        pageToken = result.data.nextPageToken
-      } while (pageToken)
+      const queue = [{ id: rootId, path: '' }]
+      const visited = new Set()
+      while (queue.length) {
+        const folder = queue.shift()
+        if (visited.has(folder.id)) continue
+        visited.add(folder.id)
+        let pageToken
+        do {
+          const result = await retry(() => clients().drive.files.list({
+            q: `'${folder.id.replace(/'/g, "\\'")}' in parents and trashed = false`,
+            pageSize: 1000,
+            pageToken,
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+            fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,md5Checksum,trashed,parents,webViewLink,capabilities/canDownload)',
+            orderBy: 'name',
+          }))
+          for (const file of result.data.files ?? []) {
+            if (file.mimeType === FOLDER_MIME) {
+              if (recursive) queue.push({ id: file.id, path: folder.path ? `${folder.path}/${file.name}` : file.name })
+              continue
+            }
+            if (includeUnsupported || supportedMimeTypes.has(file.mimeType)) files.push({ ...file, folderPath: folder.path })
+          }
+          pageToken = result.data.nextPageToken
+        } while (pageToken)
+      }
       return files
     },
 
+    async getFolder() {
+      const id = required(folderId, 'GOOGLE_DRIVE_FOLDER_ID')
+      return (await retry(() => clients().drive.files.get({ fileId: id, fields: 'id,name,mimeType', supportsAllDrives: true }))).data
+    },
+
     async getMetadata(id) {
-      return (await retry(() => clients().drive.files.get({ fileId: id, fields: 'id,name,mimeType,modifiedTime,md5Checksum,trashed,parents' }))).data
+      return (await retry(() => clients().drive.files.get({ fileId: id, fields: 'id,name,mimeType,modifiedTime,md5Checksum,trashed,parents,webViewLink', supportsAllDrives: true }))).data
     },
 
     async downloadPdf(id) {

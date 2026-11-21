@@ -31,6 +31,7 @@ export function createDocumentIngestionService({ extractors, embeddings, reposit
         mimeType: file.mimeType,
         sourceModifiedAt: file.modifiedTime ?? null,
         contentHash: hash,
+        embeddingModel: embeddings.model ?? null,
         chunks: vectors,
       })
     },

@@ -11,7 +11,9 @@
     "lint": "eslint .",
     "test:data-integration": "node scripts/run-data-agent-integration.mjs",
     "eval:bank": "node scripts/eval-bank.mjs",
-    "smoke:providers": "node scripts/smoke-providers.mjs"
+    "smoke:providers": "node scripts/smoke-providers.mjs",
+    "drive:list": "node scripts/list-drive.mjs",
+    "configure:drive-env": "node scripts/configure-drive-env.mjs"
   },
   "dependencies": {
     "@google/genai": "^3.6.1",

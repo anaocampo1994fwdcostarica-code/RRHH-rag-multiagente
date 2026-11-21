@@ -39,14 +39,23 @@ export async function createPostgresPool({
   const certificateAuthority = await readCaFile(databaseConfig.sslCaFile, 'utf8')
   validateCaCertificate(certificateAuthority)
 
-  return new PoolConstructor({
+  const pool = new PoolConstructor({
     connectionString: url.toString(),
     ssl: {
       ca: certificateAuthority,
       rejectUnauthorized: true,
       servername: url.hostname,
     },
+    // El pooler de Supabase cierra conexiones inactivas: se liberan antes y se mantiene vivo el socket.
+    idleTimeoutMillis: 10000,
+    keepAlive: true,
   })
+  // Sin este manejador, el corte de una conexión INACTIVA (ECONNRESET) es un 'error' no manejado que
+  // termina el proceso. El pool descarta ese cliente y abre otro en la siguiente consulta.
+  if (typeof pool.on === 'function') {
+    pool.on('error', (error) => console.warn(`Conexión inactiva de Postgres descartada: ${error.code ?? error.message}`))
+  }
+  return pool
 }
 
 export function getPostgresPool() {

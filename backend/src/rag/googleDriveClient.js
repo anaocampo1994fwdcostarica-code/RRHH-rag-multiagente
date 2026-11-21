@@ -78,6 +78,23 @@ export function createGoogleDriveClient({
       return files
     },
 
+    async getStartPageToken() {
+      return (await retry(() => clients().drive.changes.getStartPageToken({ supportsAllDrives: true }))).data.startPageToken
+    },
+
+    // Una página de changes.list desde pageToken. Devuelve los cambios y el token siguiente o el nuevo inicio.
+    async listChanges(pageToken) {
+      const result = await retry(() => clients().drive.changes.list({
+        pageToken,
+        pageSize: 1000,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+        includeRemoved: true,
+        fields: 'nextPageToken,newStartPageToken,changes(fileId,removed,time,file(id,name,mimeType,modifiedTime,trashed,parents,webViewLink))',
+      }))
+      return result.data
+    },
+
     async getFolder() {
       const id = required(folderId, 'GOOGLE_DRIVE_FOLDER_ID')
       return (await retry(() => clients().drive.files.get({ fileId: id, fields: 'id,name,mimeType', supportsAllDrives: true }))).data
@@ -92,9 +109,14 @@ export function createGoogleDriveClient({
       return Buffer.from(result.data)
     },
 
-    async exportGoogleDoc(id) {
-      const result = await retry(() => clients().drive.files.export({ fileId: id, mimeType: 'text/plain' }, { responseType: 'arraybuffer' }))
+    async exportGoogleDoc(id, mimeType = 'text/plain') {
+      const result = await retry(() => clients().drive.files.export({ fileId: id, mimeType }, { responseType: 'arraybuffer' }))
       return Buffer.from(result.data).toString('utf8')
+    },
+
+    // Markdown conserva encabezados (#) y tablas (|), que el fragmentador usa para dividir por sección.
+    async exportGoogleDocMarkdown(id) {
+      return this.exportGoogleDoc(id, 'text/markdown')
     },
 
     async readGoogleSheet(id) {
@@ -105,8 +127,8 @@ export function createGoogleDriveClient({
         const title = properties?.title
         if (!title) return null
         const result = await retry(() => sheetsApi.spreadsheets.values.get({ spreadsheetId: id, range: `'${title.replace(/'/g, "''")}'` }))
-        const text = (result.data.values ?? []).map((row) => row.join('\t')).join('\n')
-        return { section: title, text }
+        const rows = result.data.values ?? []
+        return { section: title, rows, text: rows.map((row) => row.join('\t')).join('\n') }
       }))
       return sections.filter(Boolean)
     },

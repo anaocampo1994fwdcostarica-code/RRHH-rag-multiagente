@@ -13,7 +13,9 @@
     "eval:bank": "node scripts/eval-bank.mjs",
     "smoke:providers": "node scripts/smoke-providers.mjs",
     "drive:list": "node scripts/list-drive.mjs",
-    "configure:drive-env": "node scripts/configure-drive-env.mjs"
+    "configure:drive-env": "node scripts/configure-drive-env.mjs",
+    "ingest:drive": "node scripts/ingest-drive.mjs",
+    "calibrate:threshold": "node scripts/calibrate-threshold.mjs"
   },
   "dependencies": {
     "@google/genai": "^3.6.1",

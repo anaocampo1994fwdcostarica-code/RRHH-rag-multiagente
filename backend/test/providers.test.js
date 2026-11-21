@@ -95,7 +95,7 @@ test('el repositorio vectorial usa por defecto el umbral configurado para el pro
   const repository = createVectorRepository({ createDataClient: () => ({ rpc: async (_name, values) => { parameters = values; return { data: [] } } }) })
   await repository.search({}, Array.from({ length: 768 }, () => 0.01))
   assert.equal(parameters.similarity_threshold, env.ragSimilarityThreshold)
-  assert.deepEqual(DEFAULT_SIMILARITY_THRESHOLDS, { openai: 0.45, local: 0.82, gemini: 0.7 })
+  assert.deepEqual(DEFAULT_SIMILARITY_THRESHOLDS, { openai: 0.45, local: 0.828, gemini: 0.7 })
 })
 
 test('DeepSeek: DEEPSEEK_BASE_URL configurable (intermediaria compatible con OpenAI), solo https y sin credenciales', async () => {

@@ -27,11 +27,12 @@ function requireUrl(name, allowedProtocols) {
   }
 }
 
-// Umbral de similitud coseno para match_policy_chunks, inicial por modelo de embeddings (se calibra en la
-// sesión 4 con el banco de preguntas). OpenAI text-embedding-3-small puntúa bajo (pares relacionados ≈ 0.5–0.7,
-// sin relación ≈ 0.2–0.4): 0.45. E5 puntúa alto aun sin relación (≈ 0.75–0.89): 0.82. Gemini: 0.7.
+// Umbral de similitud coseno para match_policy_chunks por modelo de embeddings. E5 local calibrado el 2026-11-21
+// (npm run calibrate:threshold, docs/evidencias/calibracion_umbral_2026-11-21.md): peor política 0.848, bono por
+// mascotas 0.807, punto medio 0.828. Los demás siguen provisionales. OpenAI text-embedding-3-small puntúa bajo (pares relacionados ≈ 0.5–0.7,
+// sin relación ≈ 0.2–0.4): 0.45. E5 puntúa alto aun sin relación. Gemini: 0.7.
 // Debe declararse antes de env: parseThreshold lo usa al construir env.
-export const DEFAULT_SIMILARITY_THRESHOLDS = Object.freeze({ openai: 0.45, local: 0.82, gemini: 0.7 })
+export const DEFAULT_SIMILARITY_THRESHOLDS = Object.freeze({ openai: 0.45, local: 0.828, gemini: 0.7 })
 
 export const env = {
   port: Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 3001,

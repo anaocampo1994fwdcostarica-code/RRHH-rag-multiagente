@@ -29,12 +29,16 @@ export function createDriveIngestion({ drive, embeddings, transaction, extract =
        on conflict (source_provider, external_id) do update set
          title = excluded.title, mime_type = excluded.mime_type, document_code = excluded.document_code,
          web_view_link = coalesce(excluded.web_view_link, public.documents.web_view_link),
-         folder_path = coalesce(excluded.folder_path, public.documents.folder_path), last_seen_at = now(),
-         deleted_at = null, archived_reason = null,
-         document_status = case when public.documents.document_status in ('archived', 'failed') then 'pending' else public.documents.document_status end
+         folder_path = coalesce(excluded.folder_path, public.documents.folder_path), last_seen_at = now()
        returning id, document_status`,
       [file.id, file.name, file.mimeType, metadata.code, file.webViewLink ?? null, file.folderPath ?? null],
     )
+    // El estado solo cambia por funciones editoriales (trigger de 20261121110000): un documento archivado o
+    // fallido que volvió a la carpeta se reabre con reopen_document, que deja la transición en el historial.
+    if (['archived', 'failed'].includes(document.document_status)) {
+      await client.query('select public.reopen_document($1, $2)', [document.id, 'Volvió a la carpeta de Google Drive'])
+      return { ...document, document_status: 'pending' }
+    }
     return document
   }
 
@@ -170,8 +174,8 @@ export function createDriveIngestion({ drive, embeddings, transaction, extract =
 
     async startRun(auth, kind, tokenBefore = null) {
       return transaction(auth, async (client) => (await client.query(
-        `insert into public.document_sync_runs (source_provider, status, run_kind, triggered_by, start_page_token_before)
-         values ('google_drive', 'started', $1, auth.uid(), $2) returning id`, [kind, tokenBefore])).rows[0].id)
+        // Rechaza una segunda sincronización simultánea y cierra las abandonadas (más de 2 horas).
+        'select public.start_document_sync_run($1, $2) as id', [kind, tokenBefore])).rows[0].id)
     },
 
     async finishRun(auth, runId, { failed, results, tokenAfter = null }) {

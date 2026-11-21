@@ -160,6 +160,26 @@ with checks(ord, migration, component, ok, marker) as (
       exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'match_policy_chunks' and 'document_code' = any (p.proargnames)))
   ) as c(component, ok)
+
+  union all
+  -- 20261121110000: guardia del estado editorial, reapertura, bloqueo de sincronización y búsqueda iterativa.
+  select 8, '20261121110000_harden_editorial_flow', c.component, c.ok, c.component not like 'dato:%' from (values
+    ('trigger documents_guard_status_change',
+      exists (select 1 from pg_trigger t where t.tgrelid = 'public.documents'::regclass
+              and t.tgname = 'documents_guard_status_change' and not t.tgisinternal)),
+    ('funciones reopen_document y start_document_sync_run: authenticated ejecuta y anon no',
+      (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.prosecdef and p.proname in ('reopen_document', 'start_document_sync_run')
+          and has_function_privilege('authenticated', p.oid, 'EXECUTE') and not has_function_privilege('anon', p.oid, 'EXECUTE')) = 2),
+    ('indice document_sync_runs_one_started_idx',
+      to_regclass('public.document_sync_runs_one_started_idx') is not null),
+    ('publish_document_version archiva la política de un código anterior',
+      exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'publish_document_version' and p.prosrc like '%pg_advisory_xact_lock%')),
+    ('match_policy_chunks con hnsw.iterative_scan',
+      exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'match_policy_chunks' and p.prosrc like '%hnsw.iterative_scan%'))
+  ) as c(component, ok)
 )
 select
   migration,

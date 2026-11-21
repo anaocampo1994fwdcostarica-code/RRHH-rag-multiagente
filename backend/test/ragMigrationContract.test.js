@@ -37,3 +37,57 @@ test('the vector repository forwards only validated embeddings to the RPC and pr
   assert.deepEqual(await repository.search(auth, embedding), expected)
   await assert.rejects(repository.search(auth, [...embedding, 1]), /Invalid query embedding/)
 })
+
+const driveMigrationUrl = new URL('supabase/migrations/20261121100000_drive_rag_ingestion_and_editorial_flow.sql', root)
+const statusUrl = new URL('supabase/manual_checks/20261119_migration_status_readonly.sql', root)
+
+function sqlFunction(code, name) {
+  const start = code.search(new RegExp(`create (or replace )?function public\\.${name}\\(`))
+  assert.ok(start >= 0, `falta ${name}`)
+  return code.slice(start, code.indexOf('$$;', start))
+}
+
+test('la migración de Drive recrea match_policy_chunks con los mismos filtros de publicación y permisos', async () => {
+  const code = (await readFile(driveMigrationUrl, 'utf8')).replace(/--.*$/gm, '')
+  const rpc = sqlFunction(code, 'match_policy_chunks')
+  for (const predicate of [
+    'if auth.uid() is null',
+    "document.document_status = 'published'",
+    'document.deleted_at is null',
+    "document_version.processing_status = 'processed'",
+    'policy_version.is_current',
+    "policy.status = 'published'",
+    'policy.archived_at is null',
+    'document_code text',
+    'security definer',
+  ]) assert.ok(rpc.includes(predicate), predicate)
+  assert.ok(code.includes('revoke all on function public.match_policy_chunks(extensions.vector(768), integer, real) from public, anon, service_role;'))
+  assert.ok(code.includes('grant execute on function public.match_policy_chunks(extensions.vector(768), integer, real) to authenticated;'))
+  assert.doesNotMatch(code, /grant [^;]*\bto\b[^;]*\b(anon|public)\b/, 'nada se concede a anon ni a PUBLIC')
+})
+
+test('las tablas nuevas tienen RLS y authenticated solo lee; las escrituras van por funciones con permiso', async () => {
+  const code = (await readFile(driveMigrationUrl, 'utf8')).replace(/--.*$/gm, '')
+  for (const table of ['document_status_history', 'drive_sync_state']) {
+    assert.ok(code.includes(`alter table public.${table} enable row level security;`), table)
+    assert.ok(code.includes(`revoke all on table public.${table} from public, anon, authenticated;`), table)
+    assert.ok(code.includes(`grant select on table public.${table} to authenticated;`), table)
+    assert.doesNotMatch(code, new RegExp(`grant (insert|update|delete|all)[^;]*public\\.${table}[^;]*to authenticated`), table)
+  }
+  for (const name of ['submit_document_for_review', 'publish_document_version', 'archive_document', 'save_drive_sync_token']) {
+    const body = sqlFunction(code, name)
+    assert.match(body, /security definer/, name)
+    assert.match(body, /set search_path = pg_catalog, public, pg_temp/, name)
+    assert.match(body, /document_editorial_actor|has_permission\('documents\.manage'\)/, name)
+  }
+  assert.match(sqlFunction(code, 'document_editorial_actor'), /has_permission\('policies\.manage'\)/)
+  assert.match(sqlFunction(code, 'publish_document_version'), /insert into public\.document_status_history/)
+  assert.match(sqlFunction(code, 'archive_document'), /insert into public\.document_status_history/)
+  assert.doesNotMatch(sqlFunction(code, 'archive_document'), /delete from/, 'archivar no borra')
+})
+
+test('el archivo de estado incluye la migración de Drive', async () => {
+  const status = await readFile(statusUrl, 'utf8')
+  assert.match(status, /20261121100000_drive_rag_ingestion_and_editorial_flow/)
+  assert.match(status, /document_chunk_embeddings_embedding_hnsw_idx/)
+})

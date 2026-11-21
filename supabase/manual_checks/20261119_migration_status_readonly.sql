@@ -49,8 +49,8 @@ with checks(ord, migration, component, ok, marker) as (
               where table_schema = 'public' and table_name = 'document_chunks' and column_name = 'section')),
     ('tabla public.document_chunk_embeddings',
       to_regclass('public.document_chunk_embeddings') is not null),
-    ('indice document_chunk_embeddings_embedding_idx',
-      to_regclass('public.document_chunk_embeddings_embedding_idx') is not null),
+    ('indice vectorial (ivfflat de 100000 o hnsw de 100000+121100000)',
+      coalesce(to_regclass('public.document_chunk_embeddings_embedding_idx'), to_regclass('public.document_chunk_embeddings_embedding_hnsw_idx')) is not null),
     ('RLS habilitada en document_chunk_embeddings',
       coalesce((select relrowsecurity from pg_class where oid = to_regclass('public.document_chunk_embeddings')), false)),
     ('policy document_chunk_embeddings_manage_staff',
@@ -127,6 +127,38 @@ with checks(ord, migration, component, ok, marker) as (
          'get_my_requests', 'get_my_sick_leaves', 'get_absences_today_summary')
          and (not has_function_privilege('authenticated', p.oid, 'EXECUTE') or has_function_privilege('anon', p.oid, 'EXECUTE')))
       and exists (select 1 from pg_proc p where p.proname = 'get_absences_today_summary'))
+  ) as c(component, ok)
+
+  union all
+  -- 20261121100000: ingesta desde Drive, flujo editorial con historial y estado de sincronización.
+  select 7, '20261121100000_drive_rag_ingestion_and_editorial_flow', c.component, c.ok, c.component not like 'dato:%' from (values
+    ('columnas documents.document_code y web_view_link',
+      (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'documents'
+         and column_name in ('document_code', 'web_view_link', 'folder_path', 'last_seen_at', 'archived_reason')) = 5),
+    ('columnas de metadatos en document_versions y document_chunks',
+      (select count(*) from information_schema.columns where table_schema = 'public'
+         and ((table_name = 'document_versions' and column_name in ('doc_version', 'effective_from', 'owner', 'document_title', 'embedding_model'))
+           or (table_name = 'document_chunks' and column_name in ('document_code', 'doc_version', 'source_url', 'metadata')))) = 9),
+    ('tablas document_status_history y drive_sync_state con RLS',
+      coalesce((select bool_and(relrowsecurity) and count(*) = 2 from pg_class
+        where oid in (to_regclass('public.document_status_history'), to_regclass('public.drive_sync_state'))), false)),
+    ('tablas nuevas: anon sin acceso y authenticated solo SELECT',
+      coalesce((select bool_and(not has_table_privilege('anon', oid, 'SELECT')
+          and has_table_privilege('authenticated', oid, 'SELECT')
+          and not has_table_privilege('authenticated', oid, 'INSERT')
+          and not has_table_privilege('authenticated', oid, 'UPDATE')
+          and not has_table_privilege('authenticated', oid, 'DELETE')) and count(*) = 2 from pg_class
+        where oid in (to_regclass('public.document_status_history'), to_regclass('public.drive_sync_state'))), false)),
+    ('indice HNSW document_chunk_embeddings_embedding_hnsw_idx',
+      to_regclass('public.document_chunk_embeddings_embedding_hnsw_idx') is not null),
+    ('funciones editoriales SECURITY DEFINER: authenticated ejecuta y anon no',
+      (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.prosecdef
+          and p.proname in ('submit_document_for_review', 'publish_document_version', 'archive_document', 'save_drive_sync_token')
+          and has_function_privilege('authenticated', p.oid, 'EXECUTE') and not has_function_privilege('anon', p.oid, 'EXECUTE')) = 4),
+    ('match_policy_chunks devuelve document_code',
+      exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'match_policy_chunks' and 'document_code' = any (p.proargnames)))
   ) as c(component, ok)
 )
 select

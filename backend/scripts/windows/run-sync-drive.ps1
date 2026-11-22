@@ -1,5 +1,5 @@
 # Ejecuta npm run sync:drive y guarda la salida en backend/logs/sync-drive-AAAA-MM-DD.log.
-# Lo invoca la tarea programada "RRHH-RAG sync:drive" (ver register-sync-task.ps1).
+# Lo invoca la tarea programada "RRHH-RAG sync-drive" (ver register-sync-task.ps1).
 $ErrorActionPreference = 'Stop'
 $backend = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $logs = Join-Path $backend 'logs'
@@ -15,5 +15,5 @@ $code = $LASTEXITCODE
 "==== $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') fin (código $code) ====" | Out-File -Append -Encoding utf8 $log
 
 # Conserva 30 días de bitácoras.
-Get-ChildItem $logs -Filter 'sync-drive-*.log' | Where-Object LastWriteTime -lt (Get-Date).AddDays(-30) | Remove-Item -Force
+Get-ChildItem $logs -Filter 'sync-drive-*.log' | Where-Object LastWriteTime -lt (Get-Date).AddDays(-30) | Remove-Item -Force -ErrorAction SilentlyContinue
 exit $code

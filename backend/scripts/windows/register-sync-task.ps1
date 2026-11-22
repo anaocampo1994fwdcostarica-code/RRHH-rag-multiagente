@@ -1,9 +1,9 @@
-# Registra (o actualiza) la tarea diaria "RRHH-RAG sync:drive" a las 2:00 a. m. hora de Costa Rica.
+# Registra (o actualiza) la tarea diaria "RRHH-RAG sync-drive" a las 2:00 a. m. hora de Costa Rica.
 # Uso (PowerShell, sin necesidad de administrador):
 #   powershell -ExecutionPolicy Bypass -File backend\scripts\windows\register-sync-task.ps1
-# Para quitarla: Unregister-ScheduledTask -TaskName 'RRHH-RAG sync:drive' -Confirm:$false
+# Para quitarla: Unregister-ScheduledTask -TaskName 'RRHH-RAG sync-drive' -Confirm:$false
 $ErrorActionPreference = 'Stop'
-$taskName = 'RRHH-RAG sync:drive'
+$taskName = 'RRHH-RAG sync-drive'
 $runner = Join-Path $PSScriptRoot 'run-sync-drive.ps1'
 
 # El Programador de tareas usa la hora local. Costa Rica es UTC-6 sin horario de verano: si el equipo

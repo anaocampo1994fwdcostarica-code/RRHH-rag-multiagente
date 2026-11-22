@@ -362,3 +362,20 @@ test('reglas de alta confianza: sin historial, un dato propio o una política cl
   assert.equal(llmCalls, 0)
   assert.equal(response.intent, 'personal_data')
 })
+
+test('regla 5 del prompt (v1.1.0): las hipotéticas en primera persona no las resuelven las reglas como dato propio', async () => {
+  const { HYPOTHETICAL_CASES } = await import('../scripts/hypotheticalCases.js')
+  const { QUESTION_BANK } = await import('../scripts/questionBank.js')
+  const { TEAM_QUESTIONS } = await import('../scripts/teamQuestions.js')
+  const { confidentClassification } = await import('../src/agents/intentClassifier.js')
+  const evaluated = new Set([...QUESTION_BANK, ...TEAM_QUESTIONS].map((item) => item.question))
+  const prompt = loadPrompt('orchestrator')
+  assert.match(prompt.version, /^1\.1\./)
+  assert.match(prompt.text, /hipotética/)
+  for (const { question, expected } of HYPOTHETICAL_CASES) {
+    assert.equal(evaluated.has(question), false, `no debe estar en el banco: ${question}`)
+    const rule = confidentClassification(question)
+    // Las reglas o no deciden (decide el LLM con la regla 5) o deciden lo esperado; nunca un dato propio indebido.
+    assert.ok(rule === null || expected.includes(rule.intent), `${question} → ${rule?.intent}`)
+  }
+})

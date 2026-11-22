@@ -52,10 +52,17 @@ export function createLeaveTypeNameResolver(leaveTypes = []) {
 export function toLeaveRequestPresentation(request, resolveLeaveType = createLeaveTypeNameResolver()) {
   return {
     ...request,
+    reason: cleanReason(request.reason),
     leaveTypeName: resolveLeaveType(request.leaveTypeId),
     statusLabel: getLeaveRequestStatusLabel(request.status),
     statusStyle: getLeaveRequestStatusStyle(request.status),
     startDateLabel: formatCostaRicaDate(request.startDate),
     endDateLabel: formatCostaRicaDate(request.endDate),
   }
+}
+
+/** Quita prefijos entre corchetes al inicio del motivo, p. ej. "[DEMO] ". */
+export function cleanReason(value) {
+  if (typeof value !== 'string') return ''
+  return value.replace(/^(\s*\[[^\]]*\]\s*)+/, '').trim()
 }

@@ -32,3 +32,11 @@ test('builds list and detail presentation while preserving internal values for f
   assert.equal(display.status, 'draft')
   assert.equal(display.leaveTypeId, 'leave-vacations')
 })
+
+test('cleanReason strips leading bracket prefixes', async () => {
+  const { cleanReason } = await import('../src/features/leaveRequests/presentation.js')
+  assert.equal(cleanReason('[DEMO] Permiso del viernes'), 'Permiso del viernes')
+  assert.equal(cleanReason('[TEST] [DEMO]  Cita'), 'Cita')
+  assert.equal(cleanReason('Cita [x] médica'), 'Cita [x] médica')
+  assert.equal(cleanReason(null), '')
+})

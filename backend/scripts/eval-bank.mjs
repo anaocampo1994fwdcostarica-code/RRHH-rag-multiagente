@@ -7,7 +7,8 @@
 //   Las piezas que en producción usan supabase-js con el JWT (rol RRHH, búsqueda vectorial) se ejecutan con
 //   el mismo SQL por esta conexión, porque el script no tiene contraseñas ni tokens de los usuarios de prueba.
 // - Se evalúa como rls.employee.a; la pregunta 25 se evalúa como RRHH (rls.hr) y también como colaborador.
-// - No escribe en chat_query_logs ni en la memoria de conversación (no ensucia el reporte diario).
+// - Por defecto no escribe en chat_query_logs ni en la memoria de conversación. Con --log (npm run eval:bank -- --log)
+//   guarda cada consulta en chat_query_logs con app_private.log_chat_query (datos reales para el reporte diario).
 // - Genera docs/evidencias/eval_banco_<fecha CR>.md. Nunca imprime claves ni cadenas de conexión.
 import '../src/config/env.js'
 import assert from 'node:assert/strict'
@@ -25,6 +26,18 @@ import { createVerifiedAuthIdentity } from '../src/security/authIdentity.js'
 import { getPostgresPool } from '../src/services/postgresPool.js'
 import { withUserTransaction } from '../src/services/withUserTransaction.js'
 import { QUESTION_BANK } from './questionBank.js'
+import { createChatQueryLogRepository } from '../src/repositories/chatQueryLogRepository.js'
+
+const unknownArgs = process.argv.slice(2).filter((arg) => arg !== '--log')
+if (unknownArgs.length) throw new Error(`Argumento desconocido: ${unknownArgs.join(' ')}. Uso: npm run eval:bank [-- --log]`)
+const LOG_QUERIES = process.argv.includes('--log')
+// El orquestador no espera el registro; aquí se guardan las promesas para esperarlas antes de cerrar el pool.
+const pendingLogs = []
+let failedLogs = 0
+const realQueryLog = createChatQueryLogRepository()
+const queryLog = LOG_QUERIES
+  ? { record: (entry, options) => { const p = realQueryLog.record(entry, options).catch(() => { failedLogs += 1 }); pendingLogs.push(p); return p } }
+  : { record: async () => {} }
 
 const LATENCY_LIMIT_MS = 8000
 const POLICY_PENDING = new Set(['insufficient', 'unavailable'])
@@ -76,7 +89,7 @@ const orchestrator = createOrchestrator({
   dataAgent: createDataAgent({ llm, repository: createDataAgentRepository({ transaction: readOnly }) }),
   resolveIsHr: (auth) => readOnly(auth, async (client) => (await client.query("select public.has_permission('employees.read') as allowed")).rows[0].allowed === true),
   conversations: { getRecentMessages: async () => [], createConversation: async () => null, appendUserMessage: async () => {}, appendAssistantMessage: async () => {} },
-  queryLog: { record: async () => {} },
+  queryLog,
 })
 
 // --- Ejecución ---
@@ -101,6 +114,8 @@ for (const run of runs) {
   rows.push({ ...run, response, latencyMs, intentOk, deniedOk, policyPending })
   console.log(`#${run.number} (${run.role}) ${intentOk ? '✔' : '✖'} ${run.expected} → ${response.intent} · ${response.agent ?? '—'} · ${latencyMs} ms${policyPending ? ' · pendiente RAG' : ''}`)
 }
+await Promise.all(pendingLogs)
+if (LOG_QUERIES) console.log(`Consultas guardadas en chat_query_logs: ${pendingLogs.length - failedLogs}/${pendingLogs.length}.`)
 await (await getPostgresPool()).end()
 
 // --- Reporte ---

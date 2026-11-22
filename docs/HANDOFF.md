@@ -1,10 +1,31 @@
-# HANDOFF — Sesión 4: RAG con Google Drive
+# HANDOFF — Sesión 5: agente analista y dashboard (incluye la sesión 4: RAG con Google Drive)
 
-Actualizado: 2026-11-21 · Rama: `ana` · Proyecto Supabase de pruebas: `bxtetlzjlgoezxcjhdrw`
+Actualizado: 2026-11-22 · Rama: `ana` · Proyecto Supabase de pruebas: `bxtetlzjlgoezxcjhdrw`
 
-Este documento permite retomar el trabajo en un chat nuevo. Empieza por **Pendientes** (abajo).
+Este documento permite retomar el trabajo en un chat nuevo. Empieza por **Pendientes** (§5) y por **Sesión 5** (abajo).
 
-## 1. Qué está hecho
+## Sesión 5 — resumen (2026-11-22)
+
+| Paso | Estado | Evidencia |
+|---|---|---|
+| Limpieza del repo | `frontend/node_modules` (6265 archivos) y `frontend/dist` fuera de git; `.gitignore` ya los excluía. | commit `ba488a2` |
+| Migraciones | `20261122090000` (métricas, tendencia, lectura y guardado del reporte, catálogo de documentos) y `20261122100000` (catálogo de políticas y correcciones de la revisión). Las dos se probaron en seco contra V1 con ROLLBACK antes de aplicarse. | `backend/scripts/dry-run-report-migration.mjs` |
+| Agente analista | Cifras 100 % SQL (`get_daily_report_metrics`, `get_hr_trend_30d`). Resumen de 3 a 5 frases por DeepSeek con prompt versionado **v1.1.0**. El validador rechaza cifras que no están en el JSON, números escritos con palabras, partes de fecha sueltas, enlaces y nombres; si rechaza, se usa una plantilla determinista. El LLM solo recibe agregados (sin personas ni preguntas). | `backend/src/agents/analystAgent.js`, `backend/src/agents/analyst/` |
+| Guardado | `app_private.save_daily_hr_report` (SECURITY DEFINER, solo `rrhh_api`): upsert por fecha con bloqueo y auditoría en `admin_audit_log`. El autor debe tener `reports.read`, `employees.read` y `requests.manage`. Nadie más escribe `daily_hr_reports` (ni `authenticated` ni `service_role`). | `npm run test:report-integration` |
+| Programación | `npm run report:daily` y tarea `RRHH-RAG report-daily` (07:00 CR), registrada y probada (código 0). Backfill de 30 días (23/10 a 22/11), regenerado tras las correcciones. La tarea `RRHH-RAG sync-drive` (02:00) quedó registrada por primera vez: el nombre anterior con `:` no es válido en Windows. Probada con código 0. | `backend/logs/` |
+| API | `GET /api/reports/daily?date=` (sin fecha: hoy o, si aún no existe, el último, con `isLatestFallback`) y `GET /api/reports/daily/history`, ambos con `reports.read`; un colaborador recibe 403. `GET /api/admin/documents`, `GET /api/admin/documents/sync/last` y `POST /api/admin/documents/sync` (409 si ya hay una en curso). `GET /api/policies` lee `list_published_policies()`. `/auth/permissions/reports.read` habilitado. | `backend/test/reportsEndpoints.test.js` |
+| Frontend | Menú por permisos: colaborador ve Chat IA, Políticas y Solicitudes; RRHH además Dashboard, Reportes y Documentos. Empleados y Configuración salen del menú por decisión del usuario. `/` lleva a `/dashboard` o `/chat`. El Dashboard solo lee `daily_hr_reports`: 5 KPI, tendencia de 30 días, ausencias por departamento, pendientes, resumen, temas e historial. Reportes, Documentos y Políticas muestran datos reales. Sin etiquetas de demo (verificado con grep). Gráficos con recharts 3.11.0. | `frontend/src/pages/DashboardPage.jsx`, `frontend/src/features/{reports,documents,policies}` |
+| Validación | El reporte de hoy coincide con V1 en las 7 métricas comparables. | `docs/evidencias/reporte_diario_vs_v1_2026-11-22.md` |
+| Revisión | Revisor: 0 críticos, 3 altos, 9 medios y 8 bajos. Corregidos los altos y medios, salvo "Empleados" en el menú (pedido del usuario). Lo menor queda en §5. | este HANDOFF |
+
+**Datos del chat:** las consultas de `chat_query_logs` **anteriores al 2026-11-22 son sintéticas** (`supabase/seeds/chat_logs_demo.sql.example`, `prompt_version = 'demo-seed'`, prefijo `[DEMO]`). **Desde el 2026-11-22 son reales** (chat y `npm run eval:bank -- --log`). Para borrar las sintéticas: `delete from public.chat_query_logs where prompt_version = 'demo-seed';` y luego `npm run report:daily -- --backfill=30`.
+
+Pruebas al cierre:
+- Backend: `npm test` 235/235 y lint limpio.
+- Integración: `test:report-integration` 11/11.
+- Frontend: `npm test` 30/30, lint limpio y build correcto.
+
+## 1. Qué está hecho (sesión 4)
 
 | Paso | Estado | Evidencia |
 |---|---|---|
@@ -28,6 +49,11 @@ Pruebas: `npm test` 197/197 y `npm run lint` limpio en backend (2026-11-21).
 | `npm run drive:list` | Lista la carpeta y subcarpetas: nombre, tipo, fecha y si se puede leer. `EXPECTED_DRIVE_FILES=11` para exigir el total. |
 | `npm run ingest:drive` | Ingesta completa: indexa, publica, archiva lo que ya no está y guarda el token. Idempotente. `--allow-mass-archive` solo si de verdad hay que archivar más del 30 %. |
 | `npm run sync:drive` | Sincronización incremental (`changes.list`). Sin token guardado, hace la ingesta completa. |
+| `npm run report:daily [-- --date=AAAA-MM-DD \| --backfill[=30]]` | Genera y guarda el reporte diario (por defecto, hoy en hora CR). Regenerar una fecha la reemplaza. Imprime `WARN` si el resumen cayó a la plantilla. Lo firma `RAG_INGEST_USER_ID` o `rls.hr`. |
+| `npm run test:report-integration` | Integración real del reporte: V1, tendencia, 403/42501, idempotencia, auditor y políticas. Usa ROLLBACK; el reporte de prueba 2001-01-01 se borra al final. |
+| `node scripts/dry-run-report-migration.mjs [migración]` | Aplica una migración en una transacción, compara con V1 y prueba los 42501. Siempre termina en ROLLBACK. |
+| `node scripts/evidence-report-v1.mjs` | Escribe `docs/evidencias/reporte_diario_vs_v1_<fecha>.md` (reporte guardado vs. V1, sin datos personales). |
+| `npm run eval:bank -- --log` | Igual que `eval:bank`, pero guarda cada consulta en `chat_query_logs` (datos reales para el reporte). |
 | `npm run embeddings:rebuild [--only-stale]` | Recalcula los vectores de todas las versiones vigentes con el proveedor activo (al cambiar de modelo). Luego recalibrar. |
 | `npm run calibrate:threshold` | Tabla de mejor puntaje por pregunta (1, 3–8, 10–16, 20, 23, 24) y umbral propuesto. Escribe `docs/evidencias/calibracion_umbral_2026-11-21.md`. |
 | `npm run eval:bank` | Evalúa las 25 preguntas del banco con el orquestador real (solo lectura). |
@@ -36,10 +62,16 @@ Pruebas: `npm test` 197/197 y `npm run lint` limpio en backend (2026-11-21).
 | `node scripts/apply-migration.mjs ../supabase/migrations/<archivo>.sql` | Aplica UNA migración en el proyecto de pruebas, en una transacción (todo o nada). |
 | `node ../supabase/tests/rls/run-rls-tests.mjs` | Harness SQL de RLS (18 pruebas, todo con ROLLBACK). |
 
-Tarea programada (PowerShell, sin administrador):
+Tareas programadas (PowerShell, sin administrador). Para ver su estado: `Get-ScheduledTask -TaskName 'RRHH-RAG*'`.
+
+Reporte diario, 07:00 (`RRHH-RAG report-daily`):
+- Registrar: `powershell -ExecutionPolicy Bypass -File backend\scripts\windows\register-report-task.ps1`
+- Probar ahora: `Start-ScheduledTask -TaskName 'RRHH-RAG report-daily'` → bitácora en `backend/logs/report-daily-AAAA-MM-DD.log`.
+
+Sincronización de Drive, 02:00 (`RRHH-RAG sync-drive`):
 - Registrar: `powershell -ExecutionPolicy Bypass -File backend\scripts\windows\register-sync-task.ps1`
-- Probar ahora: `Start-ScheduledTask -TaskName 'RRHH-RAG sync:drive'` → bitácora en `backend/logs/sync-drive-AAAA-MM-DD.log` (30 días).
-- Quitar: `Unregister-ScheduledTask -TaskName 'RRHH-RAG sync:drive' -Confirm:$false`
+- Probar ahora: `Start-ScheduledTask -TaskName 'RRHH-RAG sync-drive'` → bitácora en `backend/logs/sync-drive-AAAA-MM-DD.log` (30 días).
+- Quitar: `Unregister-ScheduledTask -TaskName 'RRHH-RAG sync-drive' -Confirm:$false`
 
 ## 3. Decisiones tomadas
 
@@ -67,10 +99,27 @@ Aplicadas a mano (no figuran en `supabase_migrations.schema_migrations`). Verifi
 | `20261119101000` | Estados editoriales `pending/in_review/published/archived/failed`. |
 | `20261120090000`, `20261121090000` | Datos operativos de RRHH y funciones del agente de datos. |
 | `20261121100000` | Metadatos de documento/versión/fragmento, `document_status_history`, `drive_sync_state`, métricas de `document_sync_runs`, índice HNSW, funciones editoriales, `match_policy_chunks` con código y webViewLink. |
+| `20261122090000` | Sesión 5: `get_daily_report_metrics`, `get_hr_trend_30d`, `get_daily_report`, `list_daily_reports`, `app_private.save_daily_hr_report`, `list_drive_documents` y `get_last_document_sync_run`. `daily_hr_reports` queda sin escritura directa. |
+| `20261122100000` | Sesión 5: `list_published_policies` (SECURITY DEFINER, solo metadatos de políticas publicadas) y correcciones de la revisión: permisos para generar, UUID estricto, conteos por persona, tendencia con el día en curso en null y sin escritura de `service_role`. |
 | `20261121110000` | Correcciones de la revisión: trigger de estado, `reopen_document`, `start_document_sync_run` (una sincronización a la vez), bloqueo por documento al publicar, cambio de código archiva la política anterior, `hnsw.iterative_scan`. |
 
 ## 5. Pendientes
 
+**Sesión 5**
+1. **Probar en el navegador** con `rls.hr` y `rls.employee.a` (lista de verificación en el chat de la sesión 5). La interfaz todavía no se ha probado en un navegador.
+2. Correr `npm run eval:bank -- --log` para tener consultas reales desde hoy.
+3. Hallazgos menores de la revisión sin corregir:
+   - `p_generated_by` lo aporta `rrhh_api`; es el borde de confianza, igual que en `log_chat_query`.
+   - Las tareas corren con la sesión del usuario (sin principal ni `-WakeToRun`). `StartWhenAvailable` solo recupera el día actual: si el equipo estuvo apagado varios días, correr `--backfill=N`.
+   - La hora local de las tareas se calcula al registrarlas. Si el equipo cambia de zona horaria o de horario de verano, hay que registrarlas otra vez.
+   - La integración y la prueba en seco exigen exactamente 56 colaboradores.
+   - El bundle del frontend pesa 1 MB (sin code-splitting).
+4. Criterios que hay que conocer:
+   - "Más de 3 días" usa 72 h exactas (criterio de V1).
+   - Los pendientes de fechas pasadas son aproximados y lo indica `meta.basis`.
+   - Los resúmenes de días pasados no dicen "hoy".
+
+**Sesión 4**
 1. **Pruebas de sincronización en Drive (usuario).** Editar POL-05, renombrar POL-08 y mover POL-10 fuera de la carpeta; esperar 1–2 minutos y correr `npm run sync:drive`. Esperado: POL-RH-05 `updated` (policy_version 2), POL-RH-08 `renamed`, AVI-RH-10 `archived` ("Movido fuera de la carpeta…"). Luego devolver POL-10 a la carpeta, correr `sync:drive` y verificar que vuelve a `published` con `reopen_document` en el historial. Consultas: `select * from document_sync_runs order by started_at desc limit 1` y `select * from document_status_history order by changed_at desc limit 10`.
 2. **`npm run eval:bank`** con las 25 preguntas del banco y el RAG activo (cerrar otros programas: E5 necesita ~1 GB de RAM y el equipo llegó a tener 370 MB libres). Reportar: % de intenciones, respuestas de política correctas y con cita, p90 de latencia y las preguntas 21, 22 y 23. Revisar que `eval-bank.mjs` ya no cuente "pendiente RAG" como neutro ahora que el RAG está activo.
 3. **Revisar `backend/scripts/teamQuestions.js`** (borrador de 20 preguntas, números 26–45: 11 política, 4 datos personales, 2 mixtas, 2 restringidas, 1 fuera de alcance; 8 difíciles). Después, agregar a `eval-bank.mjs` una opción para incluirlas (por ejemplo `--bank team`) y correr las 45.
@@ -85,8 +134,29 @@ Aplicadas a mano (no figuran en `supabase_migrations.schema_migrations`). Verifi
 
 ## 6. Archivos clave
 
+- Sesión 5 — base de datos: `supabase/migrations/20261122090000_add_daily_report_functions.sql`, `supabase/migrations/20261122100000_policies_catalog_and_report_fixes.sql`, `supabase/seeds/chat_logs_demo.sql.example`
+- Sesión 5 — backend: `backend/src/agents/{analystAgent.js,analyst/,prompts/analystAgent.md}`, `backend/src/{repositories/dailyReportRepository,services/dailyReportService,controllers/reportsController,routes/reportsRoutes,validation/reports}.js`, `backend/scripts/{daily-report,run-report-integration,dry-run-report-migration,evidence-report-v1}.mjs`, `backend/scripts/windows/{register-report-task,run-daily-report}.ps1`
+- Sesión 5 — frontend: `frontend/src/pages/DashboardPage.jsx`, `frontend/src/features/reports/`, `frontend/src/features/documents/`, `frontend/src/features/policies/`, `frontend/src/components/{AccessDenied,PermissionGate,StatusBlocks}.jsx`, `frontend/src/components/layout/Sidebar.jsx`
+
 - Ingesta y sincronización: `backend/src/rag/{googleDriveClient,policyChunker,policyExtractor,driveIngestion,driveSync,documentAdminService}.js`
 - Agente: `backend/src/rag/policyAgent.js`, `backend/src/agents/prompts/policyAgent.md`
 - Scripts: `backend/scripts/{configure-drive-env,list-drive,ingest-drive,sync-drive,rebuild-embeddings,calibrate-threshold,apply-migration}.mjs`, `backend/scripts/lib/`, `backend/scripts/windows/`
 - Pruebas: `backend/test/{policyChunker,driveIngestion,driveSyncHardening,ragMigrationContract,ragChat}.test.js`
 - Base de datos: `supabase/migrations/20261121100000_*.sql`, `supabase/migrations/20261121110000_*.sql`, `supabase/seeds/demo_data.sql.example`, `supabase/manual_checks/20261119_migration_status_readonly.sql`
+
+## Decisiones sesión 5
+
+Aprobadas por el usuario el 2026-11-22 (agente analista, dashboard, reportes y documentos).
+
+| # | Tema | Opción elegida | Por qué |
+|---|---|---|---|
+| 1 | Backfill de 30 días con métricas no reconstruibles | Se generan los 30 días. Ausencias, incapacidades, movimientos, chat y tendencia se reconstruyen por fechas; las solicitudes pendientes se **aproximan** (`submitted_at` antes del cierre del día y `resolved_at` nulo o posterior); los saldos de vacaciones (>20 días) son una **foto actual**. Cada bloque lo declara en `metrics.meta.basis` (`historica` / `aproximada` / `foto_actual`) y el dashboard lo indica. | `vacation_balances` solo guarda el saldo vigente, y el historial de estados del seed lleva la fecha de carga, no la real. Marcar la base evita presentar como histórico algo que no lo es, sin renunciar a la tendencia. |
+| 2 | Rotación | **Acumulada del año** (1-ene a la fecha) y **del mes**: salidas del periodo / ((plantilla al inicio del periodo + plantilla al día del reporte) / 2) × 100, a 1 decimal. Plantilla = `hired_on`/`ended_on`; salidas = `personnel_movements` tipo `salida`. | Es la fórmula estándar de rotación de salidas sobre plantilla promedio; "acumulada" en el enunciado se interpreta como año calendario hasta la fecha. Se calcula en SQL y la fórmula viaja en `turnover.formula`. |
+| 3 | `chat_query_logs` sin datos | Se siembran **consultas sintéticas** de los últimos 30 días en un seed aparte, marcadas como demo. | Sin datos, los bloques 6 y 7 y la tendencia de consultas saldrían en 0 y no se podrían demostrar ni validar. |
+| 4 | Top 5 de temas | Por **documento citado** (`cited_documents` → código del documento), más desglose por `intent`. Las preguntas no respondidas (`intent` policy/mixed y `resolved = false`) se muestran recortadas a 200 caracteres, solo a `reports.read`, y **nunca se envían al LLM**. | `chat_query_logs` no tiene columna de tema; el documento citado es objetivo y 100 % SQL (sin clasificación por LLM). Las preguntas pueden contener datos personales. |
+| 5 | Rol auditor | Ve **Dashboard y Reportes** (tiene `reports.read`), **no Documentos** (no tiene `documents.manage`). | El menú y la API se rigen por permisos, no por nombre de rol; el auditor necesita leer reportes para su función. |
+| 6 | Gráficos | **`recharts`**. | Librería React madura, responsiva y accesible; evita mantener gráficos SVG a mano. |
+| 7 | Colaborador en `/` | `/` redirige a `/chat` sin `reports.read` y a `/dashboard` con él; `/dashboard` y `/reportes` escritos a mano muestran "Acceso restringido" y la API responde 403. | El colaborador no tiene dashboard; aterrizar en el chat es su caso de uso principal. |
+| 8 | Tarea de las 07:00 y firma | La tarea genera **solo el día de hoy**; el backfill de 30 días se corre a mano una vez (`--backfill=30`). Firma `rls.hr` (DEMO-011) o `RAG_INGEST_USER_ID`. | A las 07:00 el chat del día anterior ya está completo; regenerar 30 días cada mañana sería costo de LLM sin beneficio. Misma identidad que la ingesta. |
+| 9 | Solicitudes para RRHH | "Gestión de solicitudes" queda como subentrada de Solicitudes. | Decisión del usuario. |
+| 10 | Escritura de `daily_hr_reports` | Solo `app_private.save_daily_hr_report` (SECURITY DEFINER, ejecutable solo por `rrhh_api`); se retiran `insert/update/delete` de `authenticated` y la política `reports_manage_staff`. Regenerar una fecha reemplaza el reporte (upsert por `report_date`) y queda en `admin_audit_log`. | Requisito del enunciado; ningún usuario puede alterar un reporte por la API REST. |

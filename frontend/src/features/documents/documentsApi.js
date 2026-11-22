@@ -1,9 +1,13 @@
 import { apiClient } from '../../api/client.js'
 
-export function listDocuments({ page = 1, limit = 20 } = {}) {
-  return apiClient.request(`/admin/documents?page=${page}&limit=${limit}`)
+export function listDocuments(client = apiClient) {
+  return client.request('/admin/documents')
 }
 
-export function requestDocumentSync() {
-  return apiClient.request('/admin/documents/sync', { method: 'POST', body: {} })
+export function getLastDocumentSync(client = apiClient) {
+  return client.request('/admin/documents/sync/last')
+}
+
+export function requestDocumentSync(client = apiClient) {
+  return client.request('/admin/documents/sync', { method: 'POST', body: {} })
 }

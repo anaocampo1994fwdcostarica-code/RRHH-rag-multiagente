@@ -5,16 +5,17 @@
 // - Las cifras permitidas son SOLO los valores numéricos del JSON. Las partes de una fecha (día, mes, año)
 //   no se agregan como cifras sueltas: una fecha del JSON solo se acepta escrita como fecha completa
 //   ("21 de noviembre", "21 de noviembre de 2026", "21/11", "2026-11-21") y se quita antes de contar números.
-// - El prompt exige dígitos: cualquier número escrito con palabras se rechaza (number_words).
+// - El prompt exige dígitos: cualquier número escrito con palabras se rechaza (number_words). "uno" ("uno de los")
+//   y "ambos/ambas" no se incluyen: son pronombres frecuentes y no afirman una cifra nueva.
 
 const NUMBER_WORDS = new Set([
-  'cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce', 'trece',
+  'cero', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce', 'trece',
   'catorce', 'quince', 'dieciséis', 'dieciseis', 'diecisiete', 'dieciocho', 'diecinueve', 'veinte', 'veintiuno', 'veintiún',
   'veintidós', 'veintidos', 'veintitrés', 'veintitres', 'veinticuatro', 'veinticinco', 'veintiséis', 'veintiseis',
   'veintisiete', 'veintiocho', 'veintinueve', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa',
   'cien', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos',
   'novecientos', 'mil', 'millón', 'millon', 'millones', 'doble', 'triple', 'cuádruple', 'mitad', 'docena', 'decena', 'centenar',
-  'ningún', 'ningun', 'ninguna', 'ninguno', 'ambos', 'ambas',
+  'ningún', 'ningun', 'ninguna', 'ninguno',
 ])
 const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 

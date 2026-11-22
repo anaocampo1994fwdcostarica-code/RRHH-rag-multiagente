@@ -65,6 +65,10 @@ test('spelled-out numbers, links and e-mails are rejected', () => {
   assert.equal(validateNarrative('Hay 8 ausentes. Hay 25 pendientes. Escriba a rrhh@x.com hoy.', safe).reason, 'link_or_email')
 })
 
+test('common pronouns (uno, ambas) are not treated as numbers', () => {
+  assert.equal(validateNarrative('Hay 8 ausentes y uno de los departamentos concentra 3. Hay 25 pendientes. Ambas rotaciones son de 3,7 %.', safe).ok, true)
+})
+
 test('rejects wrong sentence counts, lists, markdown, empty text and person identifiers', () => {
   assert.equal(validateNarrative('Hoy hay 8 ausentes. Hay 25 pendientes.', safe).reason, 'sentence_count')
   assert.equal(validateNarrative('A. B. C. D. E. F.', safe).reason, 'sentence_count')

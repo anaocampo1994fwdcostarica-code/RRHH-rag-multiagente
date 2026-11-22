@@ -38,12 +38,26 @@ Qué se cambió para la latencia:
 
 Las consultas de hoy en `chat_query_logs` incluyen 2 corridas de la evaluación (92 filas reales). El README se reescribió como guía de instalación completa.
 
+**Ajustes finales (2026-11-22):**
+- **Prompt del orquestador v1.1.0.** Regla 5: una pregunta hipotética o sobre qué aplica a la persona ("si me despiden", "si renuncio", "qué me corresponde") es de política aunque use "mi" o "me", salvo que pida un dato guardado.
+- **Prueba en vivo del clasificador.** `node scripts/check-classifier-hypotheticals.mjs` usa frases que no están en el banco: 6/6.
+- **Hoja de 45 preguntas.** Con la regla nueva da **46/46 (100 %)**, 96,6 % con cita, 100 % por debajo de 8 s y p90 de 5,0 s. La hoja anterior se conserva como `hoja_evaluacion_45_2026-11-22_antes.md` y `.csv` (45/46; fallaba la 14).
+- **Citas.** El agente de políticas renumera los `[n]` del texto para que coincidan con la lista de citas sin duplicados.
+- **Chat.**
+  - Markdown seguro con `react-markdown` y `remark-gfm`, sin HTML crudo.
+  - Estado de evidencia en español.
+  - Citas numeradas, con chips `[n]` que enlazan a cada cita y "Ver en Drive" por cita.
+  - Sin el buscador "Búsqueda próximamente".
+  - Los motivos de Solicitudes se muestran sin el prefijo `[DEMO]`.
+- **Pendiente conocido.** El borrador "RLS integration fixture for RLS-TEST-EMP-B" (2099-01-15) se conserva porque lo usa el harness RLS. Solo lo ve `rls.employee.b`.
+- **Latencia real desde el navegador.** Se mide con `supabase/manual_checks/20261122_chat_latency_today_readonly.sql`. Hay que cambiar el correo y la hora de inicio para excluir las corridas de `eval:bank`.
+
 **Datos del chat:** las consultas de `chat_query_logs` **anteriores al 2026-11-22 son sintéticas** (`supabase/seeds/chat_logs_demo.sql.example`, `prompt_version = 'demo-seed'`, prefijo `[DEMO]`). **Desde el 2026-11-22 son reales** (chat y `npm run eval:bank -- --log`). Para borrar las sintéticas: `delete from public.chat_query_logs where prompt_version = 'demo-seed';` y luego `npm run report:daily -- --backfill=30`.
 
 Pruebas al cierre:
-- Backend: `npm test` 242/242 y lint limpio.
+- Backend: `npm test` 244/244 y lint limpio.
 - Integración: `test:report-integration` 11/11.
-- Frontend: `npm test` 30/30, lint limpio y build correcto.
+- Frontend: `npm test` 35/35, lint limpio y build correcto.
 
 ## 1. Qué está hecho (sesión 4)
 

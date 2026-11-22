@@ -27,9 +27,15 @@ import { getPostgresPool } from '../src/services/postgresPool.js'
 import { withUserTransaction } from '../src/services/withUserTransaction.js'
 import { QUESTION_BANK } from './questionBank.js'
 import { createChatQueryLogRepository } from '../src/repositories/chatQueryLogRepository.js'
+import { TEAM_QUESTIONS } from './teamQuestions.js'
+import { LATENCY_LIMIT_MS, describeQuestion, gradeRow, summarize, toCsv, toMarkdown } from './lib/evaluationSheet.mjs'
 
-const unknownArgs = process.argv.slice(2).filter((arg) => arg !== '--log')
-if (unknownArgs.length) throw new Error(`Argumento desconocido: ${unknownArgs.join(' ')}. Uso: npm run eval:bank [-- --log]`)
+// Uso: npm run eval:bank [-- --bank=base|all] [--log]   (también se acepta "--bank all")
+const args = process.argv.slice(2)
+const bankIndex = args.indexOf('--bank')
+const BANK = args.find((arg) => arg.startsWith('--bank='))?.split('=')[1] ?? (bankIndex >= 0 ? args[bankIndex + 1] : 'base')
+const unknownArgs = args.filter((arg, i) => arg !== '--log' && !arg.startsWith('--bank') && !(bankIndex >= 0 && i === bankIndex + 1))
+if (unknownArgs.length || !['base', 'all'].includes(BANK)) throw new Error(`Argumentos no válidos: ${args.join(' ')}. Uso: npm run eval:bank [-- --bank=base|all] [--log]`)
 const LOG_QUERIES = process.argv.includes('--log')
 // El orquestador no espera el registro; aquí se guardan las promesas para esperarlas antes de cerrar el pool.
 const pendingLogs = []
@@ -39,7 +45,6 @@ const queryLog = LOG_QUERIES
   ? { record: (entry, options) => { const p = realQueryLog.record(entry, options).catch(() => { failedLogs += 1 }); pendingLogs.push(p); return p } }
   : { record: async () => {} }
 
-const LATENCY_LIMIT_MS = 8000
 const POLICY_PENDING = new Set(['insufficient', 'unavailable'])
 
 // --- Identidades de prueba (conexión del harness SOLO en lectura) ---
@@ -96,7 +101,8 @@ const orchestrator = createOrchestrator({
 const runs = [
   ...QUESTION_BANK.map((item) => ({ ...item, role: item.number === 25 ? 'RRHH' : 'colaborador', auth: item.number === 25 ? hr : employeeA })),
   { ...QUESTION_BANK.find((item) => item.number === 25), role: 'colaborador', auth: employeeA, expectDenied: true },
-]
+  ...(BANK === 'all' ? TEAM_QUESTIONS.map((item) => ({ ...item, role: 'colaborador', auth: employeeA })) : []),
+].map((run) => ({ ...run, ...describeQuestion(run, { expectDenied: run.expectDenied }) }))
 
 const rows = []
 for (const run of runs) {
@@ -111,7 +117,9 @@ for (const run of runs) {
   const intentOk = response.intent === run.expected
   const deniedOk = run.expectDenied || ['restricted'].includes(run.expected) ? response.evidenceStatus === 'restricted' && response.agent === null : true
   const policyPending = response.intent === 'policy' && POLICY_PENDING.has(response.evidenceStatus)
-  rows.push({ ...run, response, latencyMs, intentOk, deniedOk, policyPending })
+  const row = { ...run, response, latencyMs, intentOk, deniedOk, policyPending }
+  row.grade = gradeRow(row)
+  rows.push(row)
   console.log(`#${run.number} (${run.role}) ${intentOk ? '✔' : '✖'} ${run.expected} → ${response.intent} · ${response.agent ?? '—'} · ${latencyMs} ms${policyPending ? ' · pendiente RAG' : ''}`)
 }
 await Promise.all(pendingLogs)
@@ -161,7 +169,7 @@ const report = `# Evaluación del banco base — ${today}
 
 - Orquestador real: LLM \`${env.llmProvider}\` (\`${llm.model ?? 'n/d'}\`), embeddings \`${env.embeddingsProvider}\` (\`${embeddings.model ?? 'n/d'}\`), umbral de similitud ${env.ragSimilarityThreshold} + Supabase de pruebas vía \`rrhh_api\` con RLS y claims del usuario.
 - Usuario: \`rls.employee.a\` (colaborador). La pregunta 25 se evalúa como RRHH (\`rls.hr\`, DEMO-011) y también como colaborador.
-- Sin escrituras: no se registran estas consultas en \`chat_query_logs\` ni en la memoria.
+- Registro: ${LOG_QUERIES ? 'cada consulta quedó en chat_query_logs (--log).' : 'sin escrituras en chat_query_logs ni en la memoria.'}
 - "Pendiente RAG": pregunta de política con intención correcta, pero sin documentos publicados en el RAG todavía (el agente dice que no encontró la política y ofrece escalar). No cuenta como error.
 
 ## Resumen
@@ -195,5 +203,13 @@ console.log(`\nIntención: ${intentHits}/${rows.length} (${pct(intentHits, rows.
 console.log(`Tokens: ${costLine}`)
 console.log(`21 y 22 negadas: ${restricted.every((row) => row.deniedOk) ? 'sí' : 'NO'}`)
 console.log(`Reporte: docs/evidencias/eval_banco_${today}.md`)
+if (BANK === 'all') {
+  const summary = summarize(rows)
+  const sheet = { today, logged: LOG_QUERIES, summary, model: { llm: `${env.llmProvider} ${llm.model ?? ''}`.trim(), embeddings: `${env.embeddingsProvider} ${embeddings.model ?? ''}`.trim(), threshold: env.ragSimilarityThreshold } }
+  writeFileSync(`${outDir}hoja_evaluacion_45_${today}.md`, toMarkdown(rows, sheet))
+  writeFileSync(`${outDir}hoja_evaluacion_45_${today}.csv`, toCsv(rows))
+  console.log(`\nHoja (45): aciertos ${summary.correct}/${summary.total} (${summary.correctPct}) · con cita ${summary.citedPct} · < 8 s ${summary.fastPct} · p90 ${summary.p90} ms`)
+  console.log(`Hoja: docs/evidencias/hoja_evaluacion_45_${today}.md y .csv`)
+}
 process.exitCode = restricted.every((row) => row.deniedOk) ? 0 : 1
 }

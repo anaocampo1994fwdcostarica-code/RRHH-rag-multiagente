@@ -180,6 +180,24 @@ with checks(ord, migration, component, ok, marker) as (
       exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
               where n.nspname = 'public' and p.proname = 'match_policy_chunks' and p.prosrc like '%hnsw.iterative_scan%'))
   ) as c(component, ok)
+
+  union all
+  -- 20261122090000: reporte diario (métricas, tendencia, lectura, guardado) y catálogo de documentos.
+  select 9, '20261122090000_add_daily_report_functions', c.component, c.ok, true from (values
+    ('funciones de lectura INVOKER: authenticated ejecuta y anon no',
+      (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and not p.prosecdef
+          and p.proname in ('get_daily_report_metrics', 'get_hr_trend_30d', 'get_daily_report', 'list_daily_reports', 'list_drive_documents', 'get_last_document_sync_run')
+          and has_function_privilege('authenticated', p.oid, 'EXECUTE') and not has_function_privilege('anon', p.oid, 'EXECUTE')) = 6),
+    ('app_private.save_daily_hr_report DEFINER solo para rrhh_api',
+      exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'app_private' and p.proname = 'save_daily_hr_report' and p.prosecdef
+                and has_function_privilege('rrhh_api', p.oid, 'EXECUTE') and not has_function_privilege('authenticated', p.oid, 'EXECUTE'))),
+    ('daily_hr_reports sin escritura directa de authenticated',
+      not has_table_privilege('authenticated', 'public.daily_hr_reports', 'INSERT')
+      and not has_table_privilege('authenticated', 'public.daily_hr_reports', 'UPDATE')
+      and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'daily_hr_reports' and policyname = 'reports_manage_staff'))
+  ) as c(component, ok)
 )
 select
   migration,

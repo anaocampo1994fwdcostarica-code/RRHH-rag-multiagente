@@ -59,15 +59,20 @@ export function createPolicyAgent({ embeddings, vectors, llm, prompt = loadPromp
 
       // Las citas salen solo de filas del RPC, nunca del texto del modelo. Si el modelo no citó, se usa el mejor fragmento.
       const indexes = citedIndexes(answer, chunks.length)
-      const cited = (indexes.length ? indexes : [0]).map((i) => chunks[i])
-      const seen = new Set()
-      const citations = cited.map(citationFromChunk).filter((c) => {
-        const key = `${c.documentId}|${c.section}`
-        if (seen.has(key)) return false
-        seen.add(key)
-        return true
-      })
-      return { evidenceStatus: 'supported', escalationOffered: false, answer, citations, promptVersion: prompt.version }
+      // Lista de citas sin duplicados (mismo documento y sección) y, para cada fragmento citado, su número en esa
+      // lista. Así el [n] del texto coincide con la n-ésima cita que muestra la interfaz.
+      const citations = []
+      const positionByKey = new Map()
+      const positionByChunk = new Map()
+      for (const i of indexes.length ? indexes : [0]) {
+        const citation = citationFromChunk(chunks[i])
+        const key = `${citation.documentId}|${citation.section}`
+        if (!positionByKey.has(key)) { citations.push(citation); positionByKey.set(key, citations.length) }
+        positionByChunk.set(i + 1, positionByKey.get(key))
+      }
+      const renumbered = answer.replace(/(\s*)\[(\d+)\]/g, (match, space, n) => (positionByChunk.has(Number(n)) ? `${space}[${positionByChunk.get(Number(n))}]` : ''))
+        .replace(/(\[\d+\])(?:\1)+/g, '$1')
+      return { evidenceStatus: 'supported', escalationOffered: false, answer: renumbered, citations, promptVersion: prompt.version }
     },
   }
 }

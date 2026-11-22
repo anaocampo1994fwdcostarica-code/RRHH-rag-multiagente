@@ -138,3 +138,17 @@ test('policy agent cites only the fragments referenced by the model and always a
   assert.deepEqual((await make('Se paga el día 15 [2].').answer({}, 'q')).citations.map((c) => c.documentId), ['d2'])
   assert.deepEqual((await make('Respuesta sin marcas.').answer({}, 'q')).citations.map((c) => c.documentId), ['d1'])
 })
+
+test('las referencias [n] del texto coinciden con el orden de la lista de citas (sin duplicados)', async () => {
+  const { createPolicyAgent } = await import('../src/rag/policyAgent.js')
+  const chunk = (id, section) => ({ document_id: id, document_title: id, document_code: id, section, content: 'x' })
+  const chunks = [chunk('A', '1'), chunk('B', '2'), chunk('A', '1'), chunk('C', '3')]
+  const agent = createPolicyAgent({
+    embeddings: { embed: async () => [0] },
+    vectors: { search: async () => chunks },
+    llm: { generate: async () => 'Regla de C [4]. Regla de A [1][3]. Regla de B [2]. Inventada [9].' },
+  })
+  const result = await agent.answer({}, 'pregunta')
+  assert.deepEqual(result.citations.map((c) => c.documentCode), ['C', 'A', 'B'])
+  assert.equal(result.answer, 'Regla de C [1]. Regla de A [2]. Regla de B [3]. Inventada.')
+})

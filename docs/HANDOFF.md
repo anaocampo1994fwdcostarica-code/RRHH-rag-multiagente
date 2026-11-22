@@ -18,10 +18,30 @@ Este documento permite retomar el trabajo en un chat nuevo. Empieza por **Pendie
 | Validación | El reporte de hoy coincide con V1 en las 7 métricas comparables. | `docs/evidencias/reporte_diario_vs_v1_2026-11-22.md` |
 | Revisión | Revisor: 0 críticos, 3 altos, 9 medios y 8 bajos. Corregidos los altos y medios, salvo "Empleados" en el menú (pedido del usuario). Lo menor queda en §5. | este HANDOFF |
 
+**Latencia y evaluación completa (2026-11-22, al cierre de la sesión 5):**
+
+| Indicador | Valor |
+|---|---|
+| Latencia | p90 bajó de 14,6 s a **5,2 s**; **100 %** de las consultas en menos de 8 s (antes 23 %). |
+| Medición por etapa | `docs/evidencias/latencia_etapas_2026-11-22.md` (`node scripts/profile-latency.mjs`) |
+| Hoja de 45 preguntas | 25 del banco + 20 del equipo, corrida con `--log`: aciertos **45/46** (97,8 %), con cita 96,6 %. |
+| Archivos de la hoja | `docs/evidencias/hoja_evaluacion_45_2026-11-22.md` y `.csv` |
+| Única falla | La 14 ("¿Qué incluye **mi** liquidación…?"): el LLM la clasifica como mixta. |
+| 21, 22 y 23 | 21 y 22 se niegan sin agente; la 23 dice que no la encontró y ofrece escalar. |
+
+Qué se cambió para la latencia:
+- DeepSeek corre sin razonamiento (`thinking: disabled`) y con `max_tokens` por llamada.
+- La transacción RLS se prepara en una sola ida a la base.
+- La clasificación corre en paralelo con la verificación de permisos.
+- Reglas de alta confianza evitan el LLM clasificador en preguntas claras.
+- El guardado del registro y de la memoria no bloquea la respuesta.
+
+Las consultas de hoy en `chat_query_logs` incluyen 2 corridas de la evaluación (92 filas reales). El README se reescribió como guía de instalación completa.
+
 **Datos del chat:** las consultas de `chat_query_logs` **anteriores al 2026-11-22 son sintéticas** (`supabase/seeds/chat_logs_demo.sql.example`, `prompt_version = 'demo-seed'`, prefijo `[DEMO]`). **Desde el 2026-11-22 son reales** (chat y `npm run eval:bank -- --log`). Para borrar las sintéticas: `delete from public.chat_query_logs where prompt_version = 'demo-seed';` y luego `npm run report:daily -- --backfill=30`.
 
 Pruebas al cierre:
-- Backend: `npm test` 237/237 y lint limpio.
+- Backend: `npm test` 242/242 y lint limpio.
 - Integración: `test:report-integration` 11/11.
 - Frontend: `npm test` 30/30, lint limpio y build correcto.
 

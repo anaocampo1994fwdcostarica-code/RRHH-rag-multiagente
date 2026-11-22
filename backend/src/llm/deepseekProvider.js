@@ -84,8 +84,8 @@ export function createDeepseekProvider({
     name: 'deepseek',
     model,
     usage: usage.totals,
-    async generate(prompt) {
-      return complete([{ role: 'user', content: prompt }])
+    async generate(prompt, { maxTokens, signal } = {}) {
+      return complete([{ role: 'user', content: prompt }], { maxTokens, signal })
     },
     async generateJson(prompt, { schema, systemInstruction, signal } = {}) {
       // DeepSeek no acepta un JSON Schema: se describe en el prompt de sistema (que debe mencionar "json").

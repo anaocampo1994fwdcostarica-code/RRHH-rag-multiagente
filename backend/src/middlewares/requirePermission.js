@@ -16,3 +16,4 @@ export function createRequirePermission(permission, { repository = permissionsRe
 
 export const requireRequestsManage = createRequirePermission('requests.manage')
 export const requireDocumentsManage = createRequirePermission('documents.manage')
+export const requireReportsRead = createRequirePermission('reports.read')

@@ -51,7 +51,7 @@ test('lists policy metadata without restricted content', async () => {
         received = { receivedAuth, filters }
         return {
           total: 1,
-          rows: [{ id: 'policy-id', slug: 'teletrabajo', title: 'Teletrabajo', category: 'Horarios', status: 'published', summary: 'Resumen', updated_at: '2026-11-18T00:00:00Z', content: 'must-not-leak' }],
+          rows: [{ slug: 'reg-rh-04', document_code: 'REG-RH-04', title: 'Reglamento', category: 'Reglamento', doc_version: '1.0', revision: 1, effective_from: '2026-01-01', drive_url: 'https://docs.google.com/x', published_at: 't', content: 'must-not-leak' }],
         }
       },
     },
@@ -62,12 +62,12 @@ test('lists policy metadata without restricted content', async () => {
   assert.equal(response.statusCode, 200)
   assert.equal(received.receivedAuth, auth)
   assert.equal(response.body.data[0].content, undefined)
-  assert.deepEqual(Object.keys(response.body.data[0]).sort(), ['category', 'id', 'slug', 'status', 'summary', 'title', 'updatedAt'])
+  assert.deepEqual(Object.keys(response.body.data[0]).sort(), ['category', 'code', 'driveUrl', 'effectiveFrom', 'publishedAt', 'revision', 'slug', 'title', 'version'])
 })
 
 test('returns a policy by valid slug and maps an invisible policy to 404', async () => {
   const visibleController = createPoliciesController({
-    repository: { findBySlug: async () => ({ id: 'policy-id', slug: 'vacaciones', title: 'Vacaciones', category: 'Permisos', status: 'published', summary: null, updated_at: '2026-11-18T00:00:00Z' }) },
+    repository: { findBySlug: async () => ({ slug: 'pol-rh-01', document_code: 'POL-RH-01', title: 'Vacaciones', category: 'Política', doc_version: '1.0', revision: 1, effective_from: '2026-01-01', drive_url: null, published_at: 't' }) },
   })
   const visible = await invoke(visibleController.detail, { params: { slug: 'vacaciones' } })
   assert.equal(visible.response.statusCode, 200)
@@ -127,4 +127,18 @@ test('creates diagnostics without message, credentials, or token data', () => {
     upstreamCode: 'PGRST205',
   })
   assert.equal(JSON.stringify(diagnostic).includes('must not be logged'), false)
+})
+
+test('the policies repository reads list_published_policies and filters by category and accent-insensitive search', async () => {
+  const sqls = []
+  const rows = [
+    { slug: 'pol-rh-01', document_code: 'POL-RH-01', title: 'Política de Vacaciones', category: 'Política' },
+    { slug: 'pro-rh-03', document_code: 'PRO-RH-03', title: 'Procedimiento de Incapacidades', category: 'Procedimiento' },
+  ]
+  const { createPoliciesRepository } = await import('../src/repositories/policiesRepository.js')
+  const repository = createPoliciesRepository({ transaction: async (_auth, callback) => callback({ query: async (sql) => { sqls.push(sql); return { rows } } }) })
+  assert.deepEqual((await repository.list(auth, { category: 'politica', limit: 20, offset: 0 })).rows.map((r) => r.slug), ['pol-rh-01'])
+  assert.deepEqual((await repository.list(auth, { search: 'incapacidad', limit: 20, offset: 0 })).rows.map((r) => r.slug), ['pro-rh-03'])
+  assert.equal((await repository.findBySlug(auth, 'nope')), null)
+  assert.ok(sqls.every((sql) => sql.includes('public.list_published_policies()')))
 })

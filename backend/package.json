@@ -17,7 +17,9 @@
     "ingest:drive": "node scripts/ingest-drive.mjs",
     "calibrate:threshold": "node scripts/calibrate-threshold.mjs",
     "sync:drive": "node scripts/sync-drive.mjs",
-    "embeddings:rebuild": "node scripts/rebuild-embeddings.mjs"
+    "embeddings:rebuild": "node scripts/rebuild-embeddings.mjs",
+    "report:daily": "node scripts/daily-report.mjs",
+    "test:report-integration": "node scripts/run-report-integration.mjs"
   },
   "dependencies": {
     "@google/genai": "^3.6.1",

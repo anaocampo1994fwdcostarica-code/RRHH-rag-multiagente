@@ -1,20 +1,24 @@
-import { createUserDataClient } from '../services/supabaseDataClient.js'
-import { throwDataApiError } from './dataApiError.js'
+import { createHttpError } from '../errors/httpError.js'
+import { withUserTransaction } from '../services/withUserTransaction.js'
 
-const documentColumns = 'id,title,mime_type,document_status,updated_at,document_versions(id,version_label,processing_status,processing_error,processed_at,policy_versions(id,is_current,hr_policies(id,title,status,archived_at)))'
+// Catálogo de documentos de Drive y última sincronización. Las consultas viven en la base
+// (list_drive_documents, get_last_document_sync_run en 20261122090000); ambas exigen documents.manage.
+export function createDocumentsRepository({ transaction = withUserTransaction } = {}) {
+  async function run(auth, sql) {
+    try {
+      return await transaction(auth, async (client) => (await client.query(sql)).rows)
+    } catch (error) {
+      if (error?.code === '42501') throw createHttpError(403, 'Forbidden')
+      throw error
+    }
+  }
 
-export function createDocumentsRepository({ createDataClient = createUserDataClient } = {}) {
   return {
-    async list(auth, { limit = 20, offset = 0 } = {}) {
-      const { data, error, count } = await createDataClient(auth)
-        .from('documents')
-        .select(documentColumns, { count: 'exact' })
-        .is('deleted_at', null)
-        .order('updated_at', { ascending: false })
-        .range(offset, offset + limit - 1)
-      throwDataApiError(error)
-      return { rows: data ?? [], total: count ?? 0 }
-    },
+    list: (auth) => run(auth, `select document_id, document_code, title, mime_type, format, doc_version, version_label,
+        document_status, web_view_link, source_modified_at, updated_at from public.list_drive_documents()`),
+    lastSyncRun: async (auth) => (await run(auth, `select run_id, run_kind, status, started_at, finished_at, documents_examined,
+        documents_created, documents_updated, documents_archived, documents_failed, error_message
+      from public.get_last_document_sync_run()`))[0] ?? null,
   }
 }
 

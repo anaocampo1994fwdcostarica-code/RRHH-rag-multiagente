@@ -5,7 +5,7 @@ export function createPermissionsController({ repository = permissionsRepository
     async check(request, response, next) {
       try {
         const permission = request.params.permission
-        if (!['employees.read', 'requests.manage', 'documents.manage'].includes(permission)) {
+        if (!['employees.read', 'requests.manage', 'documents.manage', 'reports.read'].includes(permission)) {
           response.status(404).json({ error: 'Not found' })
           return
         }

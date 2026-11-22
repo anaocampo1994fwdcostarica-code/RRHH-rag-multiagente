@@ -1,41 +1,26 @@
-import { createUserDataClient } from '../services/supabaseDataClient.js'
-import { throwDataApiError } from './dataApiError.js'
-import { env } from '../config/env.js'
+import { withUserTransaction } from '../services/withUserTransaction.js'
 
-const policyColumns = 'id,slug,title,category,status,summary,updated_at'
+// Catálogo de políticas publicadas. La consulta vive en la base
+// (public.list_published_policies, migración 20261122100000): solo metadatos de políticas publicadas
+// y vigentes, con el enlace de Drive validado. Filtros y paginación se aplican sobre ese resultado
+// (son 11 políticas; no hay SQL escrito aquí).
+const listSql = `select slug, document_code, title, category, doc_version, revision, effective_from::text as effective_from,
+  drive_url, published_at from public.list_published_policies()`
 
-export function createPoliciesRepository({ createDataClient = createUserDataClient } = {}) {
+const normalize = (value) => String(value ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+
+export function createPoliciesRepository({ transaction = withUserTransaction } = {}) {
+  const all = (auth) => transaction(auth, async (client) => (await client.query(listSql)).rows)
   return {
     async list(auth, { category, search, limit, offset }) {
-      const client = createDataClient(auth)
-      let request = client
-        .from('hr_policies')
-        .select(policyColumns, { count: 'exact' })
-        .eq('status', 'published')
-        .is('archived_at', null)
-        .order('updated_at', { ascending: false })
-        .range(offset, offset + limit - 1)
-
-      if (category) request = request.eq('category', category)
-      if (search) request = request.ilike('title', `%${search}%`)
-
-      const { data, error, count } = await request
-      throwDataApiError(error, { operation: 'policies.list', enabled: env.nodeEnv === 'development' })
-      return { rows: data ?? [], total: count ?? 0 }
+      const rows = (await all(auth)).filter((row) =>
+        (!category || normalize(row.category) === normalize(category))
+        && (!search || normalize(`${row.title} ${row.document_code}`).includes(normalize(search))))
+      return { rows: rows.slice(offset, offset + limit), total: rows.length }
     },
 
     async findBySlug(auth, slug) {
-      const client = createDataClient(auth)
-      const { data, error } = await client
-        .from('hr_policies')
-        .select(policyColumns)
-        .eq('slug', slug)
-        .eq('status', 'published')
-        .is('archived_at', null)
-        .maybeSingle()
-
-      throwDataApiError(error, { operation: 'policies.findBySlug', enabled: env.nodeEnv === 'development' })
-      return data ?? null
+      return (await all(auth)).find((row) => row.slug === slug) ?? null
     },
   }
 }

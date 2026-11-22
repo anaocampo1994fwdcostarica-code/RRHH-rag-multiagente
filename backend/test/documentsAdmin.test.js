@@ -35,16 +35,31 @@ test('document administrative routes reject requests without a JWT before data a
   }
 })
 
-test('lists only mapped administrative document metadata and policy links', async () => {
+test('lists Drive documents from list_drive_documents and the last sync run', async () => {
   const controller = createDocumentsController({
-    repository: { list: async () => ({ total: 1, rows: [{ id: 'doc', title: 'Documento', mime_type: 'application/pdf', document_status: 'in_review', updated_at: '2026-11-19T00:00:00Z', document_versions: [{ version_label: 'hash', processing_status: 'processed', processing_error: null, processed_at: '2026-11-19T00:00:00Z', policy_versions: [{ is_current: true, hr_policies: { id: 'policy', title: 'Vacaciones', status: 'published', archived_at: null } }] }] }] }) },
-    adminService: { sync: async () => { throw new Error('must not run') }, },
+    repository: {
+      list: async () => [{ document_id: 'doc', document_code: 'POL-RH-01', title: 'Vacaciones', mime_type: 'application/pdf', format: 'PDF', doc_version: '1.0', version_label: 'hash', document_status: 'published', web_view_link: 'https://drive.google.com/file/d/x/view', source_modified_at: 's', updated_at: 'u' }],
+      lastSyncRun: async () => ({ run_id: 'run', run_kind: 'incremental', status: 'completed', started_at: 'a', finished_at: 'b', documents_examined: 11, documents_created: 0, documents_updated: 1, documents_archived: 0, documents_failed: 0, error_message: null }),
+    },
+    adminService: { sync: async () => { throw new Error('must not run') } },
+    isSyncEnabled: () => true,
   })
   const result = response()
   await controller.list({ auth, query: {} }, result, (error) => { throw error })
   assert.equal(result.statusCode, 200)
-  assert.deepEqual(result.body.data[0].policy, { id: 'policy', title: 'Vacaciones', status: 'published', archivedAt: null })
-  assert.equal(Object.hasOwn(result.body.data[0], 'externalId'), false)
+  assert.deepEqual(result.body.data[0], { id: 'doc', code: 'POL-RH-01', title: 'Vacaciones', format: 'PDF', version: '1.0', status: 'published', driveUrl: 'https://drive.google.com/file/d/x/view', sourceModifiedAt: 's', updatedAt: 'u' })
+  const last = response()
+  await controller.lastSync({ auth }, last, (error) => { throw error })
+  assert.equal(last.body.syncEnabled, true)
+  assert.equal(last.body.data.examined, 11)
+})
+
+test('a sync already running (55P03) is reported as 409', async () => {
+  const busy = Object.assign(new Error('Ya hay una sincronización'), { code: '55P03' })
+  const controller = createDocumentsController({ repository: {}, adminService: { sync: async () => { throw busy } }, isSyncEnabled: () => true })
+  let error
+  await controller.sync({ auth, body: {} }, response(), (nextError) => { error = nextError })
+  assert.equal(error.statusCode, 409)
 })
 
 test('sync remains disabled by default and rejects arbitrary folder input', async () => {

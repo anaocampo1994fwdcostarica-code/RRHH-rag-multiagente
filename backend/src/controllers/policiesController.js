@@ -4,13 +4,15 @@ import { parsePolicyListQuery, parsePolicySlug } from '../validation/policies.js
 
 function toPolicyResponse(row) {
   return {
-    id: row.id,
     slug: row.slug,
+    code: row.document_code,
     title: row.title,
     category: row.category,
-    status: row.status,
-    summary: row.summary,
-    updatedAt: row.updated_at,
+    version: row.doc_version,
+    revision: row.revision,
+    effectiveFrom: row.effective_from,
+    driveUrl: row.drive_url,
+    publishedAt: row.published_at,
   }
 }
 

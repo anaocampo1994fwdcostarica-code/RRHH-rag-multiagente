@@ -5,7 +5,7 @@ import { createChatQueryLogRepository } from '../repositories/chatQueryLogReposi
 import { permissionsRepository } from '../repositories/permissionsRepository.js'
 import { createConversationRepository } from './conversationRepository.js'
 import { assertDataAgent, createDataAgent } from './dataAgent.js'
-import { createIntentClassifier } from './intentClassifier.js'
+import { confidentClassification, createIntentClassifier } from './intentClassifier.js'
 import { evaluateQuerySafety } from './safetyGuard.js'
 
 // Flujo: identidad/rol + historial → capa de seguridad determinista (sin LLM) → clasificador
@@ -104,14 +104,14 @@ export function createOrchestrator({
     return buildResponse({ intent: 'out_of_scope', agent: null, evidenceStatus: 'out_of_scope', answer: MESSAGES.outOfScope })
   }
 
-  async function decide(question, { isHr, history }) {
+  async function decide(question, { isHr, classification: pendingClassification }) {
     const guard = evaluateQuerySafety(question, { isHr })
     if (guard.decision === 'restricted') {
       return { blocked: true, intent: guard.reason === 'aggregate_data' ? 'aggregate' : 'restricted', guardReason: guard.reason }
     }
 
-    const classification = await classifier.classify(question, { history, suspicious: guard.suspicious })
-    const meta = { guardReason: guard.reason, classifierFallback: Boolean(classification.fallback) }
+    const classification = await pendingClassification
+    const meta = { guardReason: guard.reason, classifierFallback: Boolean(classification.fallback), classifierRuleBased: Boolean(classification.ruleBased) }
 
     // Para RRHH, la capa determinista fija la intención y el alcance de datos.
     if (guard.decision === 'aggregate') return { ...classification, ...meta, intent: 'aggregate', scope: 'aggregate' }
@@ -134,21 +134,32 @@ export function createOrchestrator({
   return {
     async answer(auth, question, { conversationId } = {}) {
       const startedAt = now()
-      const [isHr, history] = await Promise.all([
-        Promise.resolve().then(() => resolveIsHr(auth)).then((value) => value === true, () => false),
-        conversationId ? Promise.resolve().then(() => conversations.getRecentMessages(auth, conversationId, HISTORY_LIMIT)).catch(() => []) : [],
-      ])
+      const isHrPromise = Promise.resolve().then(() => resolveIsHr(auth)).then((value) => value === true, () => false)
+      const historyPromise = conversationId
+        ? Promise.resolve().then(() => conversations.getRecentMessages(auth, conversationId, HISTORY_LIMIT)).catch(() => [])
+        : Promise.resolve([])
+      // La clasificación arranca en cuanto hay historial, en paralelo con la consulta de permisos. Sin historial,
+      // las reglas de alta confianza evitan el LLM. suspicious se calcula como colaborador (lo más estricto);
+      // la decisión final con el rol real la toma decide().
+      // Si como colaborador la pregunta ya se niega sin LLM, la clasificación espera al rol real (así un colaborador
+      // nunca dispara el LLM con una pregunta sobre terceros, y RRHH sí la clasifica).
+      const employeeGuard = evaluateQuerySafety(question, { isHr: false })
+      const classify = (history) => (history.length ? null : confidentClassification(question))
+        ?? classifier.classify(question, { history, suspicious: employeeGuard.suspicious })
+      const classification = employeeGuard.decision === 'restricted'
+        ? Promise.all([isHrPromise, historyPromise]).then(([hr, history]) => (hr ? classify(history) : { intent: 'restricted', subqueries: {}, reformulated: question, fallback: false }))
+        : historyPromise.then(classify)
 
-      // La persistencia corre en paralelo con la clasificación y nunca bloquea la respuesta.
-      const persisted = Promise.resolve()
-        .then(async () => {
-          const id = conversationId ?? await conversations.createConversation(auth, question)
-          await conversations.appendUserMessage(auth, id, question)
-          return id
-        })
-        .catch(() => conversationId ?? null)
+      // Persistencia en paralelo y sin bloquear: solo una conversación nueva espera su id (para devolverlo).
+      const conversationIdPromise = conversationId
+        ? Promise.resolve(conversationId)
+        : Promise.resolve().then(() => conversations.createConversation(auth, question)).catch(() => null)
+      const userMessageSaved = conversationIdPromise
+        .then((id) => (id ? conversations.appendUserMessage(auth, id, question) : undefined))
+        .catch(() => {})
 
-      const decision = await decide(question, { isHr, history })
+      const isHr = await isHrPromise
+      const decision = await decide(question, { isHr, classification })
       const result = decision.blocked
         ? buildResponse({ intent: decision.intent, agent: null, evidenceStatus: 'restricted', answer: decision.intent === 'aggregate' ? MESSAGES.aggregate : MESSAGES.restricted })
         : await route(auth, decision)
@@ -179,10 +190,10 @@ export function createOrchestrator({
         // Un registro que lanza de forma síncrona tampoco debe impedir la respuesta.
       }
 
-      const savedConversationId = await persisted
-      // Memoria: la respuesta queda en la conversación para reformular el siguiente turno.
+      const savedConversationId = await conversationIdPromise
+      // Memoria: la respuesta se guarda después del mensaje del usuario (orden), sin esperar.
       if (savedConversationId) {
-        Promise.resolve()
+        userMessageSaved
           .then(() => conversations.appendAssistantMessage?.(auth, savedConversationId, result.answer))
           .catch(ignoreFailure)
       }

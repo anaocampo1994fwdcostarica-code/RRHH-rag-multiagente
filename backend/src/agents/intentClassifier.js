@@ -58,6 +58,28 @@ export function fallbackClassification(question, { suspicious = false } = {}) {
   return { ...base, intent: 'out_of_scope' }
 }
 
+// Clasificación por reglas de alta confianza: si la pregunta (sin historial) es claramente un dato propio o
+// claramente una consulta de política, no se llama al LLM clasificador (~1 s menos). Ante cualquier duda
+// (pronombres posesivos, preguntas compuestas, verbos de norma) devuelve null y decide el LLM.
+const policyCue = /\b(?:puedo|debo|se puede|como|cuanto dura|cuando pagan|que pasa|que incluye|que cubre|quien paga|se calcula|anticipacion|politica|reglamento|procedimiento)\b/
+// Cualquier referencia a la propia persona ("me pagan", "he tomado") puede pedir un dato propio: decide el LLM.
+const possessive = /\b(?:mi|mis|me|he|tengo|llevo)\b/
+// Un dato propio solo es "claro" en preguntas cortas y sin condición ("¿me alcanza para…?" es mixta).
+const conditional = /\b(?:alcanza|para|si|antes|despues)\b/
+export function confidentClassification(question) {
+  const text = normalize(question)
+  if (!text || text.length > 160) return null
+  const personal = firstPersonRecord.test(text)
+  if (personal) {
+    if (policyCue.test(text) || conditional.test(text) || /\by\b/.test(text) || text.split(/\s+/).length > 9) return null
+    return { intent: 'personal_data', subqueries: { personal: question }, reformulated: question, fallback: false, ruleBased: true }
+  }
+  if (hrTopic.test(text) && !possessive.test(text)) {
+    return { intent: 'policy', subqueries: { policy: question }, reformulated: question, fallback: false, ruleBased: true }
+  }
+  return null
+}
+
 function formatHistory(history) {
   if (!history?.length) return '(sin mensajes previos)'
   return history.map((message) => `${message.role === 'assistant' ? 'Asistente' : 'Usuario'}: ${String(message.content).slice(0, 500)}`).join('\n')
@@ -74,7 +96,7 @@ export function createIntentClassifier({ llm, prompt = loadPrompt('orchestrator'
       try {
         const request = llm.generateJson(
           `Historial reciente (más antiguo primero):\n${formatHistory(history)}\n\nPregunta actual del usuario:\n"""${question}"""`,
-          { schema: classificationSchema, systemInstruction: prompt.text, signal: controller.signal },
+          { schema: classificationSchema, systemInstruction: prompt.text, signal: controller.signal, maxTokens: 300 },
         )
         const timeout = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('Classifier timeout.')) }, timeoutMs) })
         return { ...parseClassification(await Promise.race([request, timeout])), fallback: false }

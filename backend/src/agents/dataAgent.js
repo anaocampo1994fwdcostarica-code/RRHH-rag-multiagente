@@ -29,7 +29,7 @@ export function createDataAgent({ llm, repository = createDataAgentRepository(),
     const controller = new AbortController()
     let timer
     try {
-      const request = llm.generateJson(`Pregunta del usuario:\n"""${question}"""`, { schema: toolSelectionSchema, systemInstruction: prompt.text, signal: controller.signal })
+      const request = llm.generateJson(`Pregunta del usuario:\n"""${question}"""`, { schema: toolSelectionSchema, systemInstruction: prompt.text, signal: controller.signal, maxTokens: 200 })
       const timeout = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('Tool selection timeout.')) }, timeoutMs) })
       return { ...parseToolSelection(await Promise.race([request, timeout])), fallback: false }
     } catch {

@@ -232,7 +232,8 @@ test('un colaborador nunca llega al agente de datos con alcance distinto de "sel
   for (const intent of ['restricted', 'aggregate']) {
     const llm = { generateJson: async () => JSON.stringify({ intent, subqueries: {}, reformulated: '¿Cuál es mi saldo?' }) }
     const harness = createHarness({ llm })
-    const response = await harness.orchestrator.answer(auth, '¿Cuál es mi saldo?')
+    // Pregunta que las reglas no resuelven: decide el LLM (simulado) y su veredicto se respeta.
+    const response = await harness.orchestrator.answer(auth, 'Necesito ayuda con un dato')
     assert.equal(response.evidenceStatus, 'restricted')
     assert.equal(harness.dataCalls.length, 0)
   }
@@ -343,4 +344,21 @@ test('preguntas de Costa Rica llegan al agente de políticas cuando el LLM respo
     assert.equal(response.intent, 'policy', question)
     assert.deepEqual(harness.policyCalls, [question])
   }
+})
+
+test('reglas de alta confianza: sin historial, un dato propio o una política clara no llaman al LLM clasificador', async () => {
+  const { confidentClassification } = await import('../src/agents/intentClassifier.js')
+  assert.equal(confidentClassification('¿Cuántos días de vacaciones me quedan disponibles?').intent, 'personal_data')
+  assert.equal(confidentClassification('¿Qué día cae mi próximo pago?').intent, 'personal_data')
+  assert.equal(confidentClassification('¿Cuánto dura el periodo de prueba?').intent, 'policy')
+  assert.equal(confidentClassification('¿La empresa da bono por mascotas?').intent, 'policy')
+  // Dudosas: compuestas, posesivos con norma o sin tema de RRHH → decide el LLM.
+  for (const question of ['¿Cuántos días de vacaciones me corresponden al año?', '¿Cuántas vacaciones he tomado este año?', 'Con los días que me quedan, ¿me alcanza para tomar dos semanas seguidas en diciembre?', '¿Cuándo me pagan el aguinaldo y desde qué fecha se cuenta?', '¿Cuántos días me quedan y puedo pasar los que sobren al otro año?', '¿Qué incluye mi liquidación si me despiden?', '¿Me recomiendas una película?', '¿Cuántos días de permiso tengo por fallecimiento?']) {
+    assert.equal(confidentClassification(question), null, question)
+  }
+  let llmCalls = 0
+  const harness = createHarness({ llm: { generateJson: async () => { llmCalls += 1; return '{}' } } })
+  const response = await harness.orchestrator.answer(auth, '¿Qué día cae mi próximo pago?')
+  assert.equal(llmCalls, 0)
+  assert.equal(response.intent, 'personal_data')
 })

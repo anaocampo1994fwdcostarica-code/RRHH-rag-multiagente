@@ -18,6 +18,8 @@ function createUserQueryClient(client) {
   })
 }
 
+export const TRANSACTION_SETUP_SQL = "select set_config('request.jwt.claims', $1, true), set_config('request.jwt.claim.sub', $2, true), set_config('role', 'authenticated', true)"
+
 function createRlsClaims(auth) {
   return JSON.stringify({
     sub: auth.userId,
@@ -47,9 +49,9 @@ export async function withUserTransaction(auth, callback, { getPool = getPostgre
     await client.query('BEGIN')
     transactionStarted = true
 
-    await client.query("select set_config('request.jwt.claims', $1, true)", [createRlsClaims(auth)])
-    await client.query("select set_config('request.jwt.claim.sub', $1, true)", [auth.userId])
-    await client.query('SET LOCAL ROLE authenticated')
+    // Una sola ida a la base: claims, sub y rol local (set_config('role', …, true) equivale a SET LOCAL ROLE y
+    // verifica la pertenencia igual). Antes eran 3 viajes; con ~0,3 s de latencia de red por viaje, era ~1 s por consulta.
+    await client.query(TRANSACTION_SETUP_SQL, [createRlsClaims(auth), auth.userId])
 
     const result = await callback(createUserQueryClient(client))
     await client.query(completion === 'commit' ? 'COMMIT' : 'ROLLBACK')

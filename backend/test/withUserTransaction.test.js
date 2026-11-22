@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createVerifiedAuthIdentity } from '../src/security/authIdentity.js'
 import { createPostgresPool } from '../src/services/postgresPool.js'
-import { withUserTransaction } from '../src/services/withUserTransaction.js'
+import { TRANSACTION_SETUP_SQL, withUserTransaction } from '../src/services/withUserTransaction.js'
 
 const userA = createVerifiedAuthIdentity({ userId: '11111111-1111-4111-8111-111111111111', role: 'authenticated' })
 const userB = createVerifiedAuthIdentity({ userId: '22222222-2222-4222-8222-222222222222', role: 'authenticated' })
@@ -41,9 +41,7 @@ test('commits a successful RLS transaction after claims and role initialization'
   assert.equal(result, 'done')
   assert.deepEqual(database.queries.map(({ text }) => text), [
     'BEGIN',
-    "select set_config('request.jwt.claims', $1, true)",
-    "select set_config('request.jwt.claim.sub', $1, true)",
-    'SET LOCAL ROLE authenticated',
+    TRANSACTION_SETUP_SQL,
     'select $1::text',
     'COMMIT',
   ])
@@ -52,6 +50,8 @@ test('commits a successful RLS transaction after claims and role initialization'
     role: 'authenticated',
     aud: 'authenticated',
   })
+  assert.equal(database.queries[1].values[1], userA.userId)
+  assert.ok(TRANSACTION_SETUP_SQL.includes("set_config('role', 'authenticated', true)"))
   assert.equal(database.releaseCount, 1)
 })
 
@@ -131,11 +131,10 @@ test('does not leak claims between transactions that reuse a client', async () =
   await withUserTransaction(userA, async () => undefined, database)
   await withUserTransaction(userB, async () => undefined, database)
 
-  const claimsQueries = database.queries.filter(({ text }) => text === "select set_config('request.jwt.claims', $1, true)")
+  const claimsQueries = database.queries.filter(({ text }) => text === TRANSACTION_SETUP_SQL)
   assert.equal(claimsQueries.length, 2)
   assert.equal(JSON.parse(claimsQueries[0].values[0]).sub, userA.userId)
   assert.equal(JSON.parse(claimsQueries[1].values[0]).sub, userB.userId)
-  assert.equal(database.queries.filter(({ text }) => text === 'SET LOCAL ROLE authenticated').length, 2)
 })
 
 test('does not let callbacks control transaction state or role configuration', async () => {

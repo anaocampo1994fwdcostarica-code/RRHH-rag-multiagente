@@ -64,7 +64,8 @@ test('the orchestrator invokes RAG for policy intent and blocks third-party prom
   assert.equal(policy.evidenceStatus, 'supported')
   assert.equal(restricted.evidenceStatus, 'restricted')
   assert.equal(calls, 1)
-  assert.equal(classified, 1)
+  // 'política de vacaciones' la resuelven las reglas de alta confianza y la de terceros se niega antes: 0 llamadas.
+  assert.equal(classified, 0)
 })
 
 test('the orchestrator maps provider errors to unavailable without leaking provider details', async () => {

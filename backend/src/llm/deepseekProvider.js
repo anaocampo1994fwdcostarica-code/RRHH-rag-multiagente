@@ -42,6 +42,9 @@ export function createDeepseekProvider({
   baseDelayMs = 300,
   fetchImpl = (...args) => globalThis.fetch(...args),
   usage = createUsageMeter(),
+  // Modo de razonamiento (docs de DeepSeek: thinking.type = enabled | disabled; por defecto la API razona).
+  // El chat necesita latencia baja: se desactiva salvo que DEEPSEEK_THINKING=enabled.
+  thinking = process.env.DEEPSEEK_THINKING === 'enabled' ? 'enabled' : 'disabled',
 } = {}) {
   const endpointBase = resolveBaseUrl(baseUrl)
   async function complete(messages, { json = false, signal, maxTokens = json ? 400 : 800 } = {}) {
@@ -57,7 +60,7 @@ export function createDeepseekProvider({
         response = await fetchImpl(`${endpointBase}/chat/completions`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model, messages, temperature: 0, max_tokens: maxTokens, stream: false, ...(json && { response_format: { type: 'json_object' } }) }),
+          body: JSON.stringify({ model, messages, temperature: 0, max_tokens: maxTokens, stream: false, thinking: { type: thinking }, ...(json && { response_format: { type: 'json_object' } }) }),
           signal: combined,
         })
       } catch {
@@ -87,14 +90,15 @@ export function createDeepseekProvider({
     async generate(prompt, { maxTokens, signal } = {}) {
       return complete([{ role: 'user', content: prompt }], { maxTokens, signal })
     },
-    async generateJson(prompt, { schema, systemInstruction, signal } = {}) {
+    thinking,
+    async generateJson(prompt, { schema, systemInstruction, signal, maxTokens } = {}) {
       // DeepSeek no acepta un JSON Schema: se describe en el prompt de sistema (que debe mencionar "json").
       const system = [
         systemInstruction,
         'Responde únicamente con un objeto json válido, sin texto adicional ni bloques de código.',
         schema && `El json debe cumplir este JSON Schema:\n${JSON.stringify(schema)}`,
       ].filter(Boolean).join('\n\n')
-      return complete([{ role: 'system', content: system }, { role: 'user', content: prompt }], { json: true, signal })
+      return complete([{ role: 'system', content: system }, { role: 'user', content: prompt }], { json: true, signal, maxTokens })
     },
   }
 }

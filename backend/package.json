@@ -20,6 +20,8 @@
     "embeddings:rebuild": "node scripts/rebuild-embeddings.mjs",
     "report:daily": "node scripts/daily-report.mjs",
     "test:report-integration": "node scripts/run-report-integration.mjs"
+    ,"security:sqli": "node scripts/security-sqli.mjs"
+    ,"security:cors": "node scripts/security-cors.mjs"
   },
   "dependencies": {
     "@google/genai": "^3.6.1",

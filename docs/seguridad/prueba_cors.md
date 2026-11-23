@@ -11,3 +11,15 @@
 | Origin ajeno | Mutación con Origin no permitido | HTTP 403 |
 
 La lista se configura con `CORS_ORIGINS`, separada por comas. No se usa `*`.
+
+## Resultado real
+
+Ejecutado con `npm run security:cors` el 2026-11-23:
+
+```json
+{
+  "allowedOrigin": { "status": 200, "allowOrigin": "http://localhost:5173" },
+  "rejectedOrigin": { "status": 403, "allowOrigin": null },
+  "disallowedPreflight": { "status": 405, "allowOrigin": null, "allowMethods": null }
+}
+```

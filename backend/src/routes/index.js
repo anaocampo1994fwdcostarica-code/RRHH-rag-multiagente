@@ -10,6 +10,7 @@ import leaveRequestsRouter from './leaveRequestsRoutes.js'
 import reportsRouter from './reportsRoutes.js'
 import policiesRouter from './policiesRoutes.js'
 import permissionsRouter from './permissionsRoutes.js'
+import securityLabRouter from './securityLabRoutes.js'
 
 const apiRouter = Router()
 
@@ -19,6 +20,7 @@ apiRouter.use(chatRouter)
 apiRouter.use(employeesRouter)
 apiRouter.use(documentsRouter)
 apiRouter.use(permissionsRouter)
+apiRouter.use(securityLabRouter)
 apiRouter.use(policiesRouter)
 apiRouter.use(leaveTypesRouter)
 apiRouter.use(leaveRequestsRouter)

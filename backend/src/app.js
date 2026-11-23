@@ -40,6 +40,13 @@ app.use(helmet({
     },
   },
 }))
+app.use((request, response, next) => {
+  if (request.method === 'OPTIONS' && request.headers['access-control-request-method'] && !['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(request.headers['access-control-request-method'])) {
+    response.status(405).json({ error: 'Method not allowed' })
+    return
+  }
+  next()
+})
 app.use(cors({
   origin(origin, callback) {
     if (!origin || env.corsOrigins.includes(origin)) {

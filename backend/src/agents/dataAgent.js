@@ -24,13 +24,14 @@ export function assertDataAgent(agent) {
 }
 
 export function createDataAgent({ llm, repository = createDataAgentRepository(), prompt = loadPrompt('dataAgent'), timeoutMs = 3000 } = {}) {
-  async function selectTool(question) {
-    if (!llm?.generateJson) return fallbackToolSelection(question)
+  async function selectTool(question, { timeoutMs: callTimeoutMs } = {}) {
+    const limit = Math.max(0, Math.min(timeoutMs, callTimeoutMs ?? timeoutMs))
+    if (!llm?.generateJson || limit === 0) return fallbackToolSelection(question)
     const controller = new AbortController()
     let timer
     try {
       const request = llm.generateJson(`Pregunta del usuario:\n"""${question}"""`, { schema: toolSelectionSchema, systemInstruction: prompt.text, signal: controller.signal, maxTokens: 200 })
-      const timeout = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('Tool selection timeout.')) }, timeoutMs) })
+      const timeout = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('Tool selection timeout.')) }, limit) })
       return { ...parseToolSelection(await Promise.race([request, timeout])), fallback: false }
     } catch {
       return fallbackToolSelection(question)
@@ -52,12 +53,12 @@ export function createDataAgent({ llm, repository = createDataAgentRepository(),
 
   return {
     promptVersion: prompt.version,
-    async answer(auth, { question, scope } = {}) {
+    async answer(auth, { question, scope, timeoutMs } = {}) {
       if (!DATA_SCOPES.includes(scope)) throw new TypeError('Invalid data scope.')
       if (scope === 'other') return { ...OTHER_UNAVAILABLE, tool: null }
       if (scope === 'aggregate') return { ...renderAbsencesToday(await repository.absencesToday(auth)), tool: 'absences_today' }
 
-      const selection = await selectTool(String(question ?? ''))
+      const selection = await selectTool(String(question ?? ''), { timeoutMs })
       const [result, render] = await runSelfTool(selection, auth)
       if (!render) return { ...UNKNOWN, tool: null }
       if (!result.linked) return { ...NOT_LINKED, tool: selection.tool }

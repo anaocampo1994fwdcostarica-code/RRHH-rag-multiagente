@@ -35,9 +35,9 @@ function createDefaultDependencies() {
   }
 }
 
-async function runPolicyAgent(policyAgent, auth, question) {
+async function runPolicyAgent(policyAgent, auth, question, options = {}) {
   try {
-    const result = await policyAgent.answer(auth, question)
+    const result = await policyAgent.answer(auth, question, options)
     const citations = Array.isArray(result.citations) ? result.citations : []
     // Toda respuesta de política respaldada debe llevar al menos una cita recuperada.
     if (result.evidenceStatus === 'supported' && citations.length === 0) {
@@ -49,9 +49,9 @@ async function runPolicyAgent(policyAgent, auth, question) {
   }
 }
 
-async function runDataAgent(dataAgent, auth, question, scope) {
+async function runDataAgent(dataAgent, auth, question, scope, { timeoutMs } = {}) {
   try {
-    return await dataAgent.answer(auth, { question, scope })
+    return await dataAgent.answer(auth, { question, scope, timeoutMs })
   } catch {
     return { evidenceStatus: 'unavailable', answer: MESSAGES.dataUnavailable }
   }
@@ -76,6 +76,11 @@ export function createOrchestrator({
   resolveIsHr = (auth) => permissionsRepository.hasPermission(auth, 'employees.read'),
   queryLog = createChatQueryLogRepository(),
   now = () => Date.now(),
+  // Presupuesto total por consulta (ms). Cada llamada al LLM recibe un plazo según el tiempo restante; si se
+  // agota, se responde con lo que haya (respaldo determinista, sección más relacionada o "no encontré").
+  budgetMs = Number(process.env.CHAT_BUDGET_MS ?? 7000),
+  // Margen que se reserva para buscar y redactar después de clasificar.
+  answerReserveMs = 2500,
 } = {}) {
   if (!policyAgent || !classifier) {
     const defaults = createDefaultDependencies()
@@ -84,20 +89,23 @@ export function createOrchestrator({
   }
   assertDataAgent(dataAgent)
 
-  async function route(auth, { intent, scope, subqueries, reformulated }) {
+  async function route(auth, { intent, scope, subqueries, reformulated }, { deadline, speculative = null } = {}) {
+    // La búsqueda especulativa (pregunta original, sin historial) se reutiliza para política y mixtas.
+    const policyOptions = { deadline, now, ...(speculative ? { retrieved: speculative } : {}) }
+    const remaining = () => Math.max(0, deadline - now())
     if (intent === 'policy') {
-      const result = await runPolicyAgent(policyAgent, auth, subqueries.policy ?? reformulated)
+      const result = await runPolicyAgent(policyAgent, auth, subqueries.policy ?? reformulated, policyOptions)
       return buildResponse({ ...result, intent, agent: 'policy_rag' })
     }
     if (intent === 'personal_data' || intent === 'aggregate') {
-      const result = await runDataAgent(dataAgent, auth, subqueries.personal ?? reformulated, scope)
+      const result = await runDataAgent(dataAgent, auth, subqueries.personal ?? reformulated, scope, { timeoutMs: remaining() })
       return buildResponse({ ...result, intent, agent: 'data' })
     }
     if (intent === 'mixed') {
       // Ambos agentes son independientes: se consultan en paralelo para cuidar la latencia.
       const [dataResult, policyResult] = await Promise.all([
-        runDataAgent(dataAgent, auth, subqueries.personal ?? reformulated, 'self'),
-        runPolicyAgent(policyAgent, auth, subqueries.policy ?? reformulated),
+        runDataAgent(dataAgent, auth, subqueries.personal ?? reformulated, 'self', { timeoutMs: remaining() }),
+        runPolicyAgent(policyAgent, auth, subqueries.policy ?? reformulated, policyOptions),
       ])
       return buildResponse({ ...combineMixed(dataResult, policyResult), intent, agent: 'data+policy_rag' })
     }
@@ -134,6 +142,7 @@ export function createOrchestrator({
   return {
     async answer(auth, question, { conversationId } = {}) {
       const startedAt = now()
+      const deadline = startedAt + budgetMs
       const isHrPromise = Promise.resolve().then(() => resolveIsHr(auth)).then((value) => value === true, () => false)
       const historyPromise = conversationId
         ? Promise.resolve().then(() => conversations.getRecentMessages(auth, conversationId, HISTORY_LIMIT)).catch(() => [])
@@ -145,10 +154,17 @@ export function createOrchestrator({
       // nunca dispara el LLM con una pregunta sobre terceros, y RRHH sí la clasifica).
       const employeeGuard = evaluateQuerySafety(question, { isHr: false })
       const classify = (history) => (history.length ? null : confidentClassification(question))
-        ?? classifier.classify(question, { history, suspicious: employeeGuard.suspicious })
+        ?? classifier.classify(question, { history, suspicious: employeeGuard.suspicious, timeoutMs: Math.max(0, deadline - now() - answerReserveMs) })
       const classification = employeeGuard.decision === 'restricted'
         ? Promise.all([isHrPromise, historyPromise]).then(([hr, history]) => (hr ? classify(history) : { intent: 'restricted', subqueries: {}, reformulated: question, fallback: false }))
         : historyPromise.then(classify)
+
+      // Búsqueda especulativa: embedding + búsqueda vectorial en paralelo con la clasificación, solo sin historial
+      // (la pregunta se entiende sola) y si la capa de seguridad no la niega. Es de solo lectura: si la intención
+      // final no es policy ni mixed, se descarta sin enviar ni registrar nada.
+      const speculative = employeeGuard.decision !== 'restricted' && typeof policyAgent.retrieve === 'function'
+        ? historyPromise.then(async (history) => (history.length ? null : { query: question, chunks: await policyAgent.retrieve(auth, question) })).catch(() => null)
+        : Promise.resolve(null)
 
       // Persistencia en paralelo y sin bloquear: solo una conversación nueva espera su id (para devolverlo).
       const conversationIdPromise = conversationId
@@ -162,7 +178,7 @@ export function createOrchestrator({
       const decision = await decide(question, { isHr, classification })
       const result = decision.blocked
         ? buildResponse({ intent: decision.intent, agent: null, evidenceStatus: 'restricted', answer: decision.intent === 'aggregate' ? MESSAGES.aggregate : MESSAGES.restricted })
-        : await route(auth, decision)
+        : await route(auth, decision, { deadline, speculative })
 
       const latencyMs = now() - startedAt
       // El registro y el guardado de la respuesta no se esperan: si fallan o tardan, la respuesta sale igual.

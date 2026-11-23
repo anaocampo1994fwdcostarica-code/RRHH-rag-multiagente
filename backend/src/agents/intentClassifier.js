@@ -43,19 +43,28 @@ export function parseClassification(raw) {
 
 // Solo es dato personal si requiere un registro del usuario (saldo, fecha, estado), no una regla.
 const firstPersonRecord = /\b(?:me quedan?|tengo disponibles?|mis? (?:saldo|solicitud|solicitudes|proximo pago|proxima evaluacion)|estado (?:de|esta) mis?)\b/
-const hrTopic = /\b(?:vacaciones|permiso|licencia|incapacidad|incapacitad[oa]|accidente|riesgos? del trabajo|aguinaldo|salario|pago|planilla|teletrabajo|trabajo|trabaja|labora|laboral|horas? extra|prueba|preaviso|renuncia|despido|liquidacion|cesantia|seguro|ccss|ins|mtss|pension|acoso|feriados?|semana santa|bono|beneficio|politica|reglamento|codigo|ley|evaluacion|contrato|jornada|horario|rrhh|recursos humanos|empresa)\b/
+const hrTopic = /\b(?:vacaciones|permisos?|licencias?|incapacidad(?:es)?|incapacitad[oa]s?|enferm[oa]|accidente|riesgos? del trabajo|aguinaldo|salarios?|sueldo|pagos?|pagan|planilla|teletrabajo|trabajo|trabaja|labora|laboral|horas? extra|prueba|preaviso|renuncia|renunci[oa]|despid(?:o|en|ido|ieron)|liquidacion|cesantia|seguro|ccss|ins|mtss|pension|acoso|denuncia|feriados?|semana santa|bonos?|beneficios?|politicas?|reglamento|codigo|conducta|ley|evaluaci(?:on|ones)|desempeno|ascen(?:so|sos|der)|asciend\w*|promocion|carrera|capacitaci(?:on|ones)|curso|becas?|formacion|contrato|jornada|horario|uniforme|onboarding|ingreso|rrhh|recursos humanos|empresa|jefatura|privacidad|asistente)\b/
+// Un dato propio también se reconoce sin LLM por estos giros ("¿me aprobaron…?", "¿tengo alguna incapacidad registrada?").
+const personalRecordFallback = /\b(?:me (?:aprobaron|rechazaron|aceptaron|respondieron)|tengo (?:alguna|algun|registrad\w*)|registrad[ao]s?|(?:que|la que) (?:mande|envie|pedi)|he tomado|llevo tomad\w*)\b/
+// Fuera de alcance solo cuando es inequívoco (ocio, cocina, deportes…) y no menciona nada de RRHH.
+const clearlyOutOfScope = /\b(?:peliculas?|series?|netflix|musica|canciones?|deportes?|futbol|partido|recetas?|cocinar|chistes?|clima|horoscopo|videojuegos?|juegos?|turismo|restaurantes?|chatgpt|bitcoin)\b/
 
 /**
- * Respaldo determinista cuando el LLM falla o devuelve JSON inválido.
- * Nunca devuelve "policy" para algo sospechoso: en ese caso devuelve "restricted".
+ * Respaldo determinista cuando el LLM falla, no responde a tiempo o devuelve JSON inválido.
+ * La capa de seguridad ya decidió antes (las preguntas sobre terceros nunca llegan aquí como "policy").
+ * - Sospechosa → "restricted".
+ * - Dato propio reconocible → "personal_data".
+ * - Fuera de alcance inequívoco → "out_of_scope".
+ * - Todo lo demás → "policy": el agente de políticas solo lee documentos y, si no encuentra nada,
+ *   dice "no encontré" y ofrece escalar. Es más seguro que descartar una pregunta legítima.
  */
 export function fallbackClassification(question, { suspicious = false } = {}) {
   const base = { subqueries: {}, reformulated: question, fallback: true }
   if (suspicious) return { ...base, intent: 'restricted' }
   const text = normalize(question)
-  if (firstPersonRecord.test(text)) return { ...base, intent: 'personal_data', subqueries: { personal: question } }
-  if (hrTopic.test(text)) return { ...base, intent: 'policy', subqueries: { policy: question } }
-  return { ...base, intent: 'out_of_scope' }
+  if (firstPersonRecord.test(text) || personalRecordFallback.test(text)) return { ...base, intent: 'personal_data', subqueries: { personal: question } }
+  if (clearlyOutOfScope.test(text) && !hrTopic.test(text)) return { ...base, intent: 'out_of_scope' }
+  return { ...base, intent: 'policy', subqueries: { policy: question } }
 }
 
 // Clasificación por reglas de alta confianza: si la pregunta (sin historial) es claramente un dato propio o
@@ -85,12 +94,15 @@ function formatHistory(history) {
   return history.map((message) => `${message.role === 'assistant' ? 'Asistente' : 'Usuario'}: ${String(message.content).slice(0, 500)}`).join('\n')
 }
 
-export function createIntentClassifier({ llm, prompt = loadPrompt('orchestrator'), timeoutMs = 3500 } = {}) {
+// timeoutMs: plazo por defecto; el orquestador lo acorta con el presupuesto restante de la consulta.
+export function createIntentClassifier({ llm, prompt = loadPrompt('orchestrator'), timeoutMs = 4500 } = {}) {
   if (!llm?.generateJson) throw new TypeError('Intent classifier requires an LLM with generateJson.')
 
   return {
     promptVersion: prompt.version,
-    async classify(question, { history = [], suspicious = false } = {}) {
+    async classify(question, { history = [], suspicious = false, timeoutMs: callTimeoutMs } = {}) {
+      const limit = Math.max(0, Math.min(timeoutMs, callTimeoutMs ?? timeoutMs))
+      if (limit === 0) return fallbackClassification(question, { suspicious })
       const controller = new AbortController()
       let timer
       try {
@@ -98,7 +110,7 @@ export function createIntentClassifier({ llm, prompt = loadPrompt('orchestrator'
           `Historial reciente (más antiguo primero):\n${formatHistory(history)}\n\nPregunta actual del usuario:\n"""${question}"""`,
           { schema: classificationSchema, systemInstruction: prompt.text, signal: controller.signal, maxTokens: 300 },
         )
-        const timeout = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('Classifier timeout.')) }, timeoutMs) })
+        const timeout = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('Classifier timeout.')) }, limit) })
         return { ...parseClassification(await Promise.race([request, timeout])), fallback: false }
       } catch {
         return fallbackClassification(question, { suspicious })

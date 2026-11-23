@@ -1,0 +1,81 @@
+-- =====================================================================================
+-- DATOS DEMO / SINTÉTICOS — consultas al chatbot de los 30 días ANTERIORES a la fecha de carga.
+-- Proyecto de PRUEBAS únicamente. No usar en producción.
+--
+-- Para qué: el reporte diario (bloques 6 y 7) y la tendencia de 30 días necesitan historial de
+-- chat_query_logs. Todo lo anterior a la fecha de carga es sintético; desde ese día en adelante, el
+-- registro lo llenan el chat real y `npm run eval:bank -- --log`.
+--
+-- Marca: prompt_version = 'demo-seed' y la pregunta empieza con "[DEMO] ".
+-- Determinista: no usa random(); volver a ejecutarlo primero borra las filas demo y las regenera igual.
+-- Nunca genera filas para "hoy" (hora de Costa Rica).
+--
+-- BORRADO (deja solo las consultas reales):
+--   delete from public.chat_query_logs where prompt_version = 'demo-seed';
+-- Después, regenerar los reportes afectados: npm run report:daily -- --backfill=30
+-- =====================================================================================
+
+begin;
+
+delete from public.chat_query_logs where prompt_version = 'demo-seed';
+
+with ctx as (
+  select (now() at time zone 'America/Costa_Rica')::date as today
+),
+askers as (
+  select array_agg(e.profile_id order by e.employee_code) as ids
+  from public.employees e
+  where e.profile_id is not null and e.deleted_at is null
+),
+docs as (
+  select array_agg(d.id order by d.document_code) as ids, count(*)::int as n
+  from public.documents d
+  where d.source_provider = 'google_drive' and d.deleted_at is null and d.document_status = 'published'
+),
+templates(k, question, intent, agent, resolved, escalated) as (values
+  (0, '¿Cuántos días de vacaciones me corresponden al año?', 'policy', 'policy_rag', true, false),
+  (1, '¿Cuál es el procedimiento para pedir un permiso personal?', 'policy', 'policy_rag', true, false),
+  (2, '¿Cuántos días de vacaciones tengo disponibles?', 'personal_data', 'data', true, false),
+  (3, '¿Qué pasa con mis vacaciones si estoy incapacitado?', 'mixed', 'data+policy_rag', true, false),
+  (4, '¿Cuándo es el próximo pago?', 'personal_data', 'data', true, false),
+  (5, '¿Hay bono por tener mascotas?', 'policy', 'policy_rag', false, true),
+  (6, '¿Qué feriados quedan este año?', 'policy', 'policy_rag', true, false),
+  (7, '¿Cuál es el salario de mi jefatura?', 'restricted', null, false, false),
+  (8, '¿Puedo trabajar desde otro país un mes?', 'policy', 'policy_rag', false, true),
+  (9, '¿Cuál es la política de uso del uniforme?', 'policy', 'policy_rag', true, false),
+  (10, '¿Me recomiendas una película?', 'out_of_scope', null, false, false),
+  (11, '¿Cómo reporto una incapacidad de la CCSS?', 'policy', 'policy_rag', true, true)
+),
+plan as (
+  -- Entre 6 y 15 consultas por día, variando por día de la semana y posición en el mes.
+  select ctx.today - d as day, 6 + ((d * 7) % 10) as n
+  from ctx, generate_series(1, 30) d
+),
+rows as (
+  select p.day, i, t.*
+  from plan p
+  cross join lateral generate_series(1, p.n) i
+  join templates t on t.k = ((extract(doy from p.day)::int * 5 + i * 7) % 12)
+)
+insert into public.chat_query_logs (profile_id, question, intent, agent, cited_documents, resolved, escalated, latency_ms, prompt_version, created_at)
+select
+  askers.ids[1 + ((r.i + extract(doy from r.day)::int) % array_length(askers.ids, 1))],
+  '[DEMO] ' || r.question,
+  r.intent,
+  r.agent,
+  case when r.resolved and r.agent in ('policy_rag', 'data+policy_rag') and docs.n > 0
+       then jsonb_build_array(docs.ids[1 + ((r.k * 3 + r.i) % docs.n)])
+       else '[]'::jsonb end,
+  r.resolved,
+  r.escalated,
+  1200 + ((r.i * 977 + extract(doy from r.day)::int * 131) % 4800),
+  'demo-seed',
+  -- Entre 07:00 y 17:59 hora de Costa Rica del día sintético.
+  (r.day::timestamp + make_interval(hours => 7 + (r.i * 3) % 11, mins => (r.i * 17) % 60)) at time zone 'America/Costa_Rica'
+from rows r, askers, docs;
+
+commit;
+
+-- Verificación: debe mostrar 30 días anteriores a hoy y ninguna fila de hoy.
+-- select (created_at at time zone 'America/Costa_Rica')::date as dia, count(*)
+-- from public.chat_query_logs where prompt_version = 'demo-seed' group by 1 order by 1;

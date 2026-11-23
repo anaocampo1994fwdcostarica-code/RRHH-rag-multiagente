@@ -1,0 +1,536 @@
+-- =====================================================================================
+-- DATOS DE DEMOSTRACIÓN — NO ES UNA MIGRACIÓN.
+-- Aplicar SOLO en el proyecto Supabase de pruebas, desde el SQL Editor, después de la migración
+-- 20261120090000_add_hr_operational_data.sql. Todo es ficticio: "Café Volcán Demo S.A.".
+--
+-- Marcas de demostración:
+--   * Colaboradores con employee_code 'DEMO-001' … 'DEMO-054'.
+--   * Departamentos y puestos con código 'DEMO_…' y descripción 'DEMO: …'.
+--   * Solicitudes con reason que empieza por '[DEMO]'.
+--
+-- Idempotente: se puede ejecutar varias veces. Los datos maestros se actualizan con ON CONFLICT y
+-- los movimientos demo (solicitudes, saldos, incapacidades, movimientos, evaluaciones) se borran y se
+-- regeneran. Las fechas son relativas a HOY EN COSTA RICA, (now() at time zone 'America/Costa_Rica')::date;
+-- si se ejecuta el 19/11/2026 los movimientos cubren del 19/08/2026 al 19/11/2026.
+-- El calendario de pagos usa fechas fijas.
+--
+-- Usuarios de prueba: se buscan por correo en auth.users (solo lectura). No se crean usuarios ni roles.
+-- Edita la tabla demo_test_users (sección 1) si tus correos son otros.
+-- =====================================================================================
+
+begin;
+
+-- 0. Utilidades de sesión (pg_temp desaparece al cerrar la sesión).
+create or replace function pg_temp.demo_today() returns date
+language sql stable as $$ select (now() at time zone 'America/Costa_Rica')::date $$;
+
+-- UUID determinista a partir de una clave legible.
+create or replace function pg_temp.demo_id(p_key text) returns uuid
+language sql immutable as $$ select md5('demo:' || p_key)::uuid $$;
+
+-- Días hábiles lunes a viernes, inclusive (misma regla que el reporte y el agente de datos).
+create or replace function pg_temp.demo_business_days(p_start date, p_end date) returns integer
+language sql immutable as $$
+  select count(*)::integer from generate_series(p_start, p_end, interval '1 day') d where extract(isodow from d) < 6
+$$;
+
+-- Fecha y hora local de Costa Rica convertida a timestamptz.
+create or replace function pg_temp.demo_cr_ts(p_date date, p_time time) returns timestamptz
+language sql immutable as $$ select (p_date + p_time) at time zone 'America/Costa_Rica' $$;
+
+-- Lunes de la semana de una fecha.
+create or replace function pg_temp.demo_monday(p_date date) returns date
+language sql immutable as $$ select p_date - (extract(isodow from p_date)::integer - 1) $$;
+
+-- 1. Usuarios de prueba a vincular (edita los correos si es necesario).
+-- hired_on fija una fecha de ingreso realista para A y B (el harness RLS no depende de ella):
+--   A (2024-03-04) → 14 días en el periodo actual, 5 tomados → 9 disponibles.
+--   B (2025-06-16) → 8 días proporcionales del periodo anterior sin usar + 13 del actual → 21 (> 20).
+create temporary table demo_test_users (email text, employee_code text, department_code text, full_name text, hired_on date) on commit drop;
+insert into demo_test_users values
+  ('rls.employee.a@test.invalid', 'RLS-TEST-EMP-A', 'DEMO_TI', 'Colaborador de prueba A (demo)', date '2024-03-04'),
+  ('rls.employee.b@test.invalid', 'RLS-TEST-EMP-B', 'DEMO_COM', 'Colaborador de prueba B (demo)', date '2025-06-16'),
+  ('rls.hr@test.invalid', 'DEMO-011', null, null, null),
+  ('rls.admin@test.invalid', 'DEMO-002', null, null, null);
+
+-- 2. Departamentos (6) y puestos.
+insert into public.departments (id, code, name, description)
+select pg_temp.demo_id('dept:' || code), code, name, 'DEMO: departamento ficticio de Café Volcán Demo S.A.'
+from (values
+  ('DEMO_DIR', 'Dirección General'),
+  ('DEMO_TH', 'Talento Humano'),
+  ('DEMO_FIN', 'Finanzas'),
+  ('DEMO_TI', 'Tecnología'),
+  ('DEMO_PRO', 'Producción'),
+  ('DEMO_COM', 'Comercial y Logística')
+) as d(code, name)
+on conflict (code) do update set name = excluded.name, description = excluded.description, is_active = true, archived_at = null;
+
+insert into public.positions (id, department_id, code, name, description)
+select pg_temp.demo_id('pos:' || d.code || p.suffix), d.id, d.code || p.suffix,
+  case when d.code = 'DEMO_DIR' and p.suffix = '_JEFE' then 'Gerencia General' else p.prefix || d.name end,
+  'DEMO: puesto ficticio'
+from public.departments d
+cross join (values ('_JEFE', 'Jefatura de '), ('_ANALISTA', 'Analista de '), ('_ASISTENTE', 'Asistente de ')) as p(suffix, prefix)
+where d.code like 'DEMO\_%'
+on conflict (code) do update set name = excluded.name, description = excluded.description, is_active = true, archived_at = null;
+
+-- 3. Tipos de permiso (se reutilizan si ya existen).
+insert into public.leave_types (code, name, requires_attachment) values
+  ('vacaciones', 'Vacaciones', false),
+  ('permiso_personal', 'Permiso personal', false),
+  ('cita_medica', 'Cita médica', true),
+  ('duelo', 'Permiso por duelo', false)
+on conflict do nothing;
+
+-- 4. Colaboradores demo: 54 = 6 departamentos × 9. El primero de cada bloque es la jefatura.
+create temporary table demo_people on commit drop as
+with base as (
+  select n,
+    (array['Ana','Luis','María','José','Carolina','Andrés','Daniela','Esteban','Gabriela','Mauricio','Valeria','Kevin','Natalia','Diego','Fernanda','Pablo','Melissa','Jorge','Rebeca','Adrián','Paola','Sergio','Tatiana','Marco','Laura','Bryan','Silvia','Randall','Diana','Josué','Karla','Óscar','Mónica','Rafael','Andrea','Cristian','Patricia','Allan','Raquel','Jonathan','Verónica','Felipe','Sofía','Gerardo','Marcela','Ricardo','Priscilla','Alonso','Isabel','Emmanuel','Lucía','Roberto','Elena','Manuel'])[n] as first_name,
+    (array['Rojas','Vargas','Jiménez','Mora','Solano','Araya','Chaves','Quesada','Alfaro','Brenes','Calderón','Castro','Salazar','Ramírez','Villalobos','Hernández','Arias','Sánchez','Méndez','Zúñiga','Badilla','Cordero','Monge','Picado','Ulate','Segura','Aguilar','Porras','Valverde','Murillo'])[1 + ((n * 7) % 30)] as last1,
+    (array['Rojas','Vargas','Jiménez','Mora','Solano','Araya','Chaves','Quesada','Alfaro','Brenes','Calderón','Castro','Salazar','Ramírez','Villalobos','Hernández','Arias','Sánchez','Méndez','Zúñiga','Badilla','Cordero','Monge','Picado','Ulate','Segura','Aguilar','Porras','Valverde','Murillo'])[1 + ((n * 11 + 3) % 30)] as last2
+  from generate_series(1, 54) as n
+)
+select
+  n as i,
+  'DEMO-' || lpad(n::text, 3, '0') as code,
+  first_name || ' ' || last1 || ' ' || last2 as full_name,
+  (array['DEMO_DIR','DEMO_TH','DEMO_FIN','DEMO_TI','DEMO_PRO','DEMO_COM'])[((n - 1) / 9) + 1] as department_code,
+  ((n - 1) % 9) + 1 as k,
+  n in (18, 45) as is_exit,          -- salidas en el mes
+  n in (27, 36, 54) as is_new_hire,  -- ingresos en el mes
+  n = 23 as is_maternity             -- incapacidad por maternidad activa
+from base;
+
+insert into public.employees (id, employee_code, full_name, department_id, position_id, employment_status, hired_on, ended_on, deleted_at)
+select
+  pg_temp.demo_id('emp:' || p.code),
+  p.code,
+  p.full_name,
+  d.id,
+  pos.id,
+  case when p.is_exit then 'inactive' when p.is_maternity then 'on_leave' else 'active' end,
+  case when p.is_new_hire then greatest(date_trunc('month', pg_temp.demo_today())::date, pg_temp.demo_today() - (p.i % 10 + 3))
+       else date '2015-01-05' + ((p.i * 97) % 3400) end,
+  case when p.is_exit then greatest(date_trunc('month', pg_temp.demo_today())::date, pg_temp.demo_today() - (p.i % 5 + 1)) end,
+  null
+from demo_people p
+join public.departments d on d.code = p.department_code
+join public.positions pos on pos.code = p.department_code || case when p.k = 1 then '_JEFE' when p.k <= 5 then '_ANALISTA' else '_ASISTENTE' end
+on conflict (employee_code) do update set
+  full_name = excluded.full_name,
+  department_id = excluded.department_id,
+  position_id = excluded.position_id,
+  employment_status = excluded.employment_status,
+  hired_on = excluded.hired_on,
+  ended_on = excluded.ended_on,
+  deleted_at = null;
+  -- profile_id no se toca: conserva los vínculos con usuarios de prueba.
+
+-- Jefaturas: las de departamento reportan a la Gerencia General (DEMO-001); el resto a su jefatura.
+update public.employees e
+set manager_employee_id = case
+  when p.i = 1 then null
+  when p.k = 1 then (select id from public.employees where employee_code = 'DEMO-001')
+  else (select id from public.employees where employee_code = 'DEMO-' || lpad((p.i - p.k + 1)::text, 3, '0'))
+end
+from demo_people p
+where e.employee_code = p.code;
+
+-- 5. Vincular usuarios de prueba mediante profile_id (sin crear usuarios de auth).
+do $$
+declare
+  r record;
+  v_profile uuid;
+  v_linked_code text;
+begin
+  for r in select * from demo_test_users loop
+    select p.id into v_profile
+    from auth.users u join public.profiles p on p.id = u.id
+    where lower(u.email) = lower(r.email);
+
+    if v_profile is null then
+      raise notice 'DEMO: el usuario % no existe; se omite.', r.email;
+      continue;
+    end if;
+
+    select employee_code into v_linked_code from public.employees where profile_id = v_profile and deleted_at is null;
+    if v_linked_code is not null and v_linked_code <> r.employee_code then
+      raise notice 'DEMO: % ya está vinculado a %; no se cambia.', r.email, v_linked_code;
+      continue;
+    end if;
+
+    if r.employee_code like 'RLS-TEST-EMP-%' then
+      -- El harness RLS exige estos códigos. Si ya existen, se conservan departamento y puesto.
+      insert into public.employees as e (employee_code, profile_id, full_name, department_id, position_id, manager_employee_id, employment_status, hired_on)
+      select r.employee_code, v_profile, r.full_name, d.id, pos.id,
+        (select id from public.employees where employee_code = case r.department_code when 'DEMO_TI' then 'DEMO-028' else 'DEMO-046' end),
+        'active', r.hired_on
+      from public.departments d
+      join public.positions pos on pos.code = d.code || '_ANALISTA'
+      where d.code = r.department_code
+      on conflict (employee_code) do update set
+        profile_id = coalesce(e.profile_id, excluded.profile_id),
+        full_name = coalesce(e.full_name, excluded.full_name),
+        manager_employee_id = coalesce(e.manager_employee_id, excluded.manager_employee_id),
+        -- Sobrescribe la fecha que dejó el harness al crearlos: la demo necesita un ingreso realista.
+        hired_on = excluded.hired_on;
+    else
+      update public.employees set profile_id = v_profile
+      where employee_code = r.employee_code and (profile_id is null or profile_id = v_profile);
+    end if;
+  end loop;
+end;
+$$;
+
+-- Alcance de los datos demo: colaboradores DEMO-* y los dos de prueba.
+create temporary table demo_scope on commit drop as
+select e.id as employee_id, e.employee_code as code, e.hired_on, e.ended_on, e.employment_status,
+  coalesce(p.i, case e.employee_code when 'RLS-TEST-EMP-A' then 101 else 102 end) as i,
+  coalesce(p.is_exit, false) as is_exit,
+  coalesce(p.is_new_hire, false) as is_new_hire,
+  e.employee_code like 'RLS-TEST-EMP-%' as is_test_user
+from public.employees e
+left join demo_people p on p.code = e.employee_code
+where e.deleted_at is null
+  and (e.employee_code like 'DEMO-%' or e.employee_code in ('RLS-TEST-EMP-A', 'RLS-TEST-EMP-B'));
+
+-- 6. Limpieza de movimientos demo (historial primero: la FK es ON DELETE RESTRICT).
+delete from public.leave_request_status_history h
+using public.leave_requests lr
+where h.request_id = lr.id
+  and lr.reason like '[DEMO]%'
+  and lr.employee_id in (select employee_id from demo_scope);
+delete from public.leave_requests
+where reason like '[DEMO]%' and employee_id in (select employee_id from demo_scope);
+delete from public.vacation_balances where employee_id in (select employee_id from demo_scope);
+delete from public.sick_leaves where employee_id in (select employee_id from demo_scope);
+delete from public.personnel_movements where employee_id in (select employee_id from demo_scope);
+delete from public.performance_reviews where employee_id in (select employee_id from demo_scope);
+
+-- 7. Solicitudes de permiso (todas las reglas usan la fecha de Costa Rica).
+create temporary table demo_requests (
+  employee_id uuid, rule text, leave_type_code text, start_date date, end_date date,
+  status text, submitted_at timestamptz, resolved_at timestamptz, reason text
+) on commit drop;
+
+-- 7.1 Vacaciones aprobadas pasadas (lunes a viernes, dentro de los últimos 3 meses). Cuentan en el saldo.
+insert into demo_requests
+select s.employee_id, 'vac_past', 'vacaciones', m.start_date, m.start_date + (s.i % 5),
+  'approved', pg_temp.demo_cr_ts(m.start_date - 10, '09:00'), pg_temp.demo_cr_ts(m.start_date - 8, '14:00'),
+  '[DEMO] Vacaciones programadas'
+from demo_scope s
+cross join lateral (select pg_temp.demo_monday(pg_temp.demo_today() - (20 + (s.i * 5) % 65)) as start_date) m
+where s.i % 3 = 0 and not s.is_exit and not s.is_new_hire and not s.is_test_user;
+
+-- 7.2 Ausencias que caen HOY (vacaciones aprobadas de ayer a pasado mañana). Cuentan en el saldo.
+insert into demo_requests
+select s.employee_id, 'vac_today', 'vacaciones', pg_temp.demo_today() - 1, pg_temp.demo_today() + 2,
+  'approved', pg_temp.demo_cr_ts(pg_temp.demo_today() - 15, '10:00'), pg_temp.demo_cr_ts(pg_temp.demo_today() - 12, '15:00'),
+  '[DEMO] Vacaciones familiares'
+from demo_scope s
+where s.code in ('DEMO-005', 'DEMO-014', 'DEMO-030', 'DEMO-041');
+
+-- 7.3 Permisos aprobados que no son vacaciones (no afectan el saldo).
+insert into demo_requests
+select s.employee_id, 'permit_approved', case when s.i % 2 = 0 then 'cita_medica' else 'duelo' end,
+  pg_temp.demo_today() - (15 + s.i % 60), pg_temp.demo_today() - (15 + s.i % 60),
+  'approved', pg_temp.demo_cr_ts(pg_temp.demo_today() - (18 + s.i % 60), '08:30'), pg_temp.demo_cr_ts(pg_temp.demo_today() - (17 + s.i % 60), '11:00'),
+  '[DEMO] Permiso aprobado'
+from demo_scope s
+where s.i % 7 = 0 and not s.is_new_hire and not s.is_test_user;
+
+-- 7.4 Pendientes ANTIGUAS: submitted_at hace 4 a 7 días (> 3 días según submitted_at).
+insert into demo_requests
+select s.employee_id, 'pending_old', 'vacaciones', pg_temp.demo_today() + 14 + s.i % 10, pg_temp.demo_today() + 16 + s.i % 10,
+  'submitted', pg_temp.demo_cr_ts(pg_temp.demo_today() - (4 + s.i % 4), '09:00'), null,
+  '[DEMO] Solicitud pendiente de revisión'
+from demo_scope s
+where s.i % 7 = 1 and not s.is_exit and not s.is_test_user;
+
+-- 7.5 En revisión: submitted_at hace 5 a 7 días.
+insert into demo_requests
+select s.employee_id, 'in_review', 'permiso_personal', pg_temp.demo_today() + 7 + s.i % 5, pg_temp.demo_today() + 7 + s.i % 5,
+  'in_review', pg_temp.demo_cr_ts(pg_temp.demo_today() - (5 + s.i % 3), '10:30'), null,
+  '[DEMO] Permiso en revisión'
+from demo_scope s
+where s.i % 7 = 2 and not s.is_exit and not s.is_test_user;
+
+-- 7.6 Pendientes RECIENTES: submitted_at hace 0 a 2 días (no deben contar como > 3 días).
+insert into demo_requests
+select s.employee_id, 'pending_recent', 'vacaciones', pg_temp.demo_today() + 20 + s.i % 10, pg_temp.demo_today() + 21 + s.i % 10,
+  'submitted', pg_temp.demo_cr_ts(pg_temp.demo_today() - (s.i % 3), '08:00'), null,
+  '[DEMO] Solicitud reciente'
+from demo_scope s
+where s.i % 7 = 3 and not s.is_exit and not s.is_test_user;
+
+-- 7.7 Rechazadas (pasadas).
+insert into demo_requests
+select s.employee_id, 'rejected', 'vacaciones', pg_temp.demo_today() - (30 + s.i % 40), pg_temp.demo_today() - (29 + s.i % 40),
+  'rejected', pg_temp.demo_cr_ts(pg_temp.demo_today() - (45 + s.i % 40), '09:00'), pg_temp.demo_cr_ts(pg_temp.demo_today() - (43 + s.i % 40), '16:00'),
+  '[DEMO] Solicitud rechazada por cierre contable'
+from demo_scope s
+where s.i % 7 = 4 and not s.is_new_hire and not s.is_test_user;
+
+-- 7.8 Canceladas (pasadas).
+insert into demo_requests
+select s.employee_id, 'cancelled', 'permiso_personal', pg_temp.demo_today() - (10 + s.i % 50), pg_temp.demo_today() - (10 + s.i % 50),
+  'cancelled', pg_temp.demo_cr_ts(pg_temp.demo_today() - (20 + s.i % 50), '09:00'), pg_temp.demo_cr_ts(pg_temp.demo_today() - (18 + s.i % 50), '09:30'),
+  '[DEMO] Solicitud cancelada por la persona'
+from demo_scope s
+where s.i % 7 = 5 and not s.is_new_hire and not s.is_test_user;
+
+-- 7.9 Borradores (sin submitted_at).
+insert into demo_requests
+select s.employee_id, 'draft', 'vacaciones', pg_temp.demo_today() + 30 + s.i % 15, pg_temp.demo_today() + 32 + s.i % 15,
+  'draft', null, null, '[DEMO] Borrador'
+from demo_scope s
+where s.i % 7 = 6 and not s.is_exit and not s.is_test_user;
+
+-- 7.10 Usuarios de prueba: vacaciones aprobadas (posteriores al ingreso), pendiente antigua y permiso del
+-- próximo viernes (pregunta 18). A: lunes a viernes (5 días hábiles). B: un solo día.
+insert into demo_requests
+select s.employee_id, 'test_vac', 'vacaciones', m.start_date, m.start_date + case s.code when 'RLS-TEST-EMP-A' then 4 else 0 end,
+  'approved', pg_temp.demo_cr_ts(m.start_date - 9, '09:00'), pg_temp.demo_cr_ts(m.start_date - 7, '12:00'), '[DEMO] Vacaciones de prueba'
+from demo_scope s
+cross join lateral (select pg_temp.demo_monday(pg_temp.demo_today() - 35) as start_date) m
+where s.is_test_user
+union all
+select s.employee_id, 'test_friday', 'permiso_personal', f.friday, f.friday,
+  'submitted', pg_temp.demo_cr_ts(pg_temp.demo_today() - 4, '11:00'), null, '[DEMO] Permiso del viernes'
+from demo_scope s
+cross join lateral (select pg_temp.demo_monday(pg_temp.demo_today()) + 4 + case when extract(isodow from pg_temp.demo_today()) >= 5 then 7 else 0 end as friday) f
+where s.is_test_user;
+
+insert into public.leave_requests (id, employee_id, leave_type_id, start_date, end_date, reason, status, submitted_at, resolved_at, created_at)
+select pg_temp.demo_id('lr:' || r.employee_id || ':' || r.rule), r.employee_id, lt.id, r.start_date, r.end_date, r.reason, r.status,
+  r.submitted_at, r.resolved_at, coalesce(r.submitted_at - interval '1 hour', pg_temp.demo_cr_ts(pg_temp.demo_today() - 1, '17:00'))
+from demo_requests r
+join public.leave_types lt on lt.code = r.leave_type_code;
+
+-- 8. Saldos de vacaciones: taken_days = días hábiles de vacaciones APROBADAS del mismo periodo.
+create temporary table demo_taken on commit drop as
+select lr.employee_id, extract(year from lr.start_date)::integer as period,
+  sum(pg_temp.demo_business_days(lr.start_date, lr.end_date))::integer as taken_days
+from public.leave_requests lr
+join public.leave_types lt on lt.id = lr.leave_type_id and lt.code = 'vacaciones'
+where lr.status = 'approved' and lr.deleted_at is null and lr.employee_id in (select employee_id from demo_scope)
+group by 1, 2;
+
+insert into public.vacation_balances (id, employee_id, period, assigned_days, taken_days)
+select pg_temp.demo_id('vb:' || p.employee_id || ':' || p.period), p.employee_id, p.period,
+  greatest(
+    -- POL-RH-01 §3: 15 días hábiles por año de servicio cumplido; durante el primer año, 1,25 días por mes
+    -- completo trabajado (entero hacia abajo). Los meses se cuentan hasta hoy o hasta el cierre del periodo.
+    case
+      when m.months >= 12 then 15
+      else floor(1.25 * m.months)::integer
+    end,
+    coalesce(t.taken_days, 0)
+  ),
+  coalesce(t.taken_days, 0)
+from (
+  select employee_id, extract(year from pg_temp.demo_today())::integer as period from demo_scope where not is_exit
+  union
+  select employee_id, period from demo_taken
+  union
+  -- Personas con periodo anterior sin disfrutar (acumulan más de 20 días).
+  select employee_id, extract(year from pg_temp.demo_today())::integer - 1 from demo_scope
+  where code in ('DEMO-007', 'DEMO-016', 'DEMO-025', 'DEMO-034', 'RLS-TEST-EMP-B')
+) as p
+join demo_scope s on s.employee_id = p.employee_id
+cross join lateral (
+  select (extract(year from age(least(pg_temp.demo_today(), make_date(p.period, 12, 31)), s.hired_on)) * 12
+        + extract(month from age(least(pg_temp.demo_today(), make_date(p.period, 12, 31)), s.hired_on)))::integer as months
+) m
+left join demo_taken t on t.employee_id = p.employee_id and t.period = p.period;
+
+-- 9. Incapacidades: activas hoy y pasadas dentro de la ventana de 3 meses.
+insert into public.sick_leaves (id, employee_id, type, start_date, days, entity)
+select pg_temp.demo_id('sl:' || v.code || ':' || v.label), s.employee_id, v.type, pg_temp.demo_today() + v.start_offset, v.days, v.entity
+from (values
+  ('DEMO-008', 'activa_enfermedad', 'enfermedad', -2, 5, 'CCSS'),
+  ('DEMO-020', 'activa_accidente', 'accidente_laboral', -10, 30, 'INS'),
+  ('DEMO-023', 'activa_maternidad', 'maternidad', -40, 120, 'CCSS'),
+  ('DEMO-050', 'activa_hoy', 'enfermedad', 0, 3, 'empresa'),
+  ('DEMO-003', 'pasada_1', 'enfermedad', -90, 3, 'empresa'),
+  ('DEMO-012', 'pasada_2', 'enfermedad', -66, 7, 'CCSS'),
+  ('DEMO-019', 'pasada_3', 'accidente_laboral', -58, 12, 'INS'),
+  ('DEMO-031', 'pasada_4', 'enfermedad', -44, 2, 'empresa'),
+  ('DEMO-038', 'pasada_5', 'enfermedad', -30, 4, 'CCSS'),
+  ('DEMO-047', 'pasada_6', 'enfermedad', -21, 3, 'empresa'),
+  ('DEMO-052', 'pasada_7', 'accidente_laboral', -15, 8, 'INS'),
+  ('RLS-TEST-EMP-A', 'pasada_prueba', 'enfermedad', -50, 3, 'empresa')
+) as v(code, label, type, start_offset, days, entity)
+join demo_scope s on s.code = v.code;
+
+-- 10. Movimientos de personal (ingresos y salidas del mes, más historial de 3 meses).
+insert into public.personnel_movements (id, employee_id, type, movement_date, reason)
+select pg_temp.demo_id('pm:' || s.code || ':ingreso'), s.employee_id, 'ingreso', s.hired_on, '[DEMO] Contratación nueva'
+from demo_scope s where s.is_new_hire
+union all
+select pg_temp.demo_id('pm:' || s.code || ':salida'), s.employee_id, 'salida', s.ended_on, '[DEMO] Renuncia voluntaria'
+from demo_scope s where s.is_exit
+union all
+select pg_temp.demo_id('pm:' || v.code || ':' || v.type), s.employee_id, v.type, pg_temp.demo_today() + v.offset_days, v.reason
+from (values
+  ('DEMO-013', 'ascenso', -92, '[DEMO] Ascenso a analista sénior'),
+  ('DEMO-029', 'ascenso', -52, '[DEMO] Ascenso por evaluación sobresaliente'),
+  ('DEMO-040', 'ascenso', -33, '[DEMO] Cambio a coordinación de turno')
+) as v(code, type, offset_days, reason)
+join demo_scope s on s.code = v.code;
+
+-- 11. Evaluaciones de desempeño (POL-RH-08 §2): semestrales, en la segunda quincena de junio y de diciembre.
+-- Próxima programada para todos los activos en la ventana que sigue; algunas completadas en la ventana anterior.
+-- Se reparten entre los días hábiles de la quincena (sin fines de semana ni feriados de CAL-RH-05).
+create or replace function pg_temp.demo_review_day(p_year integer, p_month integer, p_index integer) returns date
+language sql stable as $$
+  with days as (
+    select d::date as day, row_number() over (order by d) - 1 as n, count(*) over () as total
+    from generate_series(make_date(p_year, p_month, 16), (make_date(p_year, p_month, 1) + interval '1 month - 1 day')::date, interval '1 day') d
+    where extract(isodow from d) < 6 and d::date not in ('2026-12-25', '2025-12-25')
+  )
+  select day from days where n = p_index % total
+$$;
+
+insert into public.performance_reviews (id, employee_id, scheduled_date, status)
+select pg_temp.demo_id('pr:' || s.code || ':next'), s.employee_id,
+  pg_temp.demo_review_day(w.year, w.next_month, s.i), 'programada'
+from demo_scope s
+cross join lateral (
+  select extract(year from pg_temp.demo_today())::integer as year,
+    case when extract(month from pg_temp.demo_today()) <= 6 then 6 else 12 end as next_month
+) w
+where not s.is_exit
+union all
+select pg_temp.demo_id('pr:' || s.code || ':done'), s.employee_id,
+  case when w.next_month = 12 then pg_temp.demo_review_day(w.year, 6, s.i) else pg_temp.demo_review_day(w.year - 1, 12, s.i) end, 'completada'
+from demo_scope s
+cross join lateral (
+  select extract(year from pg_temp.demo_today())::integer as year,
+    case when extract(month from pg_temp.demo_today()) <= 6 then 6 else 12 end as next_month
+) w
+where s.i % 4 = 0 and not s.is_new_hire;
+
+-- 12. Calendario de pagos 2026: copia exacta de la hoja "Pagos 2026" de CAL-RH-05 (única fuente de fechas).
+-- Regla (POL-RH-05 §3): día 15 y último día del mes; si cae sábado, domingo o feriado, el día hábil anterior.
+-- Aguinaldo: viernes 18 de diciembre de 2026 (POL-RH-05 §4).
+create temporary table demo_payroll_2026 (pay_date date, label text, type text) on commit drop;
+insert into demo_payroll_2026 values
+  ('2026-01-15', 'Primera quincena de enero 2026', 'quincenal'),
+  ('2026-01-30', 'Segunda quincena de enero 2026', 'quincenal'),
+  ('2026-02-13', 'Primera quincena de febrero 2026', 'quincenal'),
+  ('2026-02-27', 'Segunda quincena de febrero 2026', 'quincenal'),
+  ('2026-03-13', 'Primera quincena de marzo 2026', 'quincenal'),
+  ('2026-03-31', 'Segunda quincena de marzo 2026', 'quincenal'),
+  ('2026-04-15', 'Primera quincena de abril 2026', 'quincenal'),
+  ('2026-04-30', 'Segunda quincena de abril 2026', 'quincenal'),
+  ('2026-05-15', 'Primera quincena de mayo 2026', 'quincenal'),
+  ('2026-05-29', 'Segunda quincena de mayo 2026', 'quincenal'),
+  ('2026-06-15', 'Primera quincena de junio 2026', 'quincenal'),
+  ('2026-06-30', 'Segunda quincena de junio 2026', 'quincenal'),
+  ('2026-07-15', 'Primera quincena de julio 2026', 'quincenal'),
+  ('2026-07-31', 'Segunda quincena de julio 2026', 'quincenal'),
+  ('2026-08-14', 'Primera quincena de agosto 2026', 'quincenal'),
+  ('2026-08-28', 'Segunda quincena de agosto 2026', 'quincenal'),
+  ('2026-09-14', 'Primera quincena de setiembre 2026', 'quincenal'),
+  ('2026-09-30', 'Segunda quincena de setiembre 2026', 'quincenal'),
+  ('2026-10-15', 'Primera quincena de octubre 2026', 'quincenal'),
+  ('2026-10-30', 'Segunda quincena de octubre 2026', 'quincenal'),
+  ('2026-11-13', 'Primera quincena de noviembre 2026', 'quincenal'),
+  ('2026-11-30', 'Segunda quincena de noviembre 2026', 'quincenal'),
+  ('2026-12-15', 'Primera quincena de diciembre 2026', 'quincenal'),
+  ('2026-12-18', 'Aguinaldo 2026 (1 de diciembre de 2025 al 30 de noviembre de 2026)', 'aguinaldo'),
+  ('2026-12-31', 'Segunda quincena de diciembre 2026', 'quincenal');
+
+-- Fechas de 2026 que ya no están en CAL-RH-05 (p. ej. 31/08 y 15/09, que son feriados) se eliminan.
+delete from public.payroll_calendar pc
+where extract(year from pc.pay_date) = 2026
+  and not exists (select 1 from demo_payroll_2026 v where v.pay_date = pc.pay_date and v.type = pc.type);
+
+insert into public.payroll_calendar (id, pay_date, period_label, type)
+select pg_temp.demo_id('pay:' || v.pay_date || ':' || v.type), v.pay_date, v.label, v.type
+from demo_payroll_2026 v
+on conflict (pay_date, type) do update set period_label = excluded.period_label;
+
+commit;
+
+-- =====================================================================================
+-- CONSULTAS DE VERIFICACIÓN (ejecútalas por separado: el SQL Editor muestra solo el último resultado).
+-- Usan las mismas reglas que deben usar el reporte diario y el agente de datos.
+-- =====================================================================================
+
+-- V1. Resumen comparable con el reporte diario (métrica | valor).
+with ctx as (select (now() at time zone 'America/Costa_Rica')::date as today),
+scope as (
+  select * from public.employees
+  where deleted_at is null and (employee_code like 'DEMO-%' or employee_code in ('RLS-TEST-EMP-A', 'RLS-TEST-EMP-B'))
+)
+select metric, value from (
+  select 1 as ord, 'colaboradores_demo_total' as metric, count(*)::text as value from scope
+  union all select 2, 'colaboradores_activos', count(*)::text from scope where employment_status = 'active'
+  union all select 3, 'departamentos_demo', count(*)::text from public.departments where code like 'DEMO\_%'
+  union all select 4, 'ausentes_hoy_por_permiso_aprobado', count(distinct lr.employee_id)::text
+    from public.leave_requests lr, ctx where lr.status = 'approved' and lr.deleted_at is null
+      and ctx.today between lr.start_date and lr.end_date and lr.employee_id in (select id from scope)
+  union all select 5, 'incapacidades_activas_hoy', count(*)::text
+    from public.sick_leaves sl, ctx where ctx.today between sl.start_date and sl.end_date and sl.employee_id in (select id from scope)
+  union all select 6, 'solicitudes_pendientes', count(*)::text
+    from public.leave_requests where status in ('submitted', 'in_review') and deleted_at is null and employee_id in (select id from scope)
+  union all select 7, 'solicitudes_pendientes_mas_de_3_dias', count(*)::text
+    from public.leave_requests where status in ('submitted', 'in_review') and deleted_at is null
+      and submitted_at < now() - interval '3 days' and employee_id in (select id from scope)
+  union all select 8, 'ingresos_del_mes', count(*)::text
+    from public.personnel_movements pm, ctx where pm.type = 'ingreso' and pm.movement_date >= date_trunc('month', ctx.today)::date
+      and pm.movement_date <= ctx.today and pm.employee_id in (select id from scope)
+  union all select 9, 'salidas_del_mes', count(*)::text
+    from public.personnel_movements pm, ctx where pm.type = 'salida' and pm.movement_date >= date_trunc('month', ctx.today)::date
+      and pm.movement_date <= ctx.today and pm.employee_id in (select id from scope)
+  union all select 10, 'personas_con_mas_de_20_dias_acumulados', count(*)::text
+    from (select employee_id from public.vacation_balances where employee_id in (select id from scope)
+          group by employee_id having sum(available_days) > 20) acc
+  union all select 11, 'proximo_pago', min(pay_date)::text from public.payroll_calendar, ctx where pay_date >= ctx.today
+  union all select 12, 'movimientos_desde', min(d)::text from (
+      select start_date as d from public.leave_requests where reason like '[DEMO]%'
+      union all select movement_date from public.personnel_movements where reason like '[DEMO]%' and type <> 'ingreso'
+    ) m
+) metrics
+order by ord;
+
+-- V2. Coherencia saldo vs. solicitudes: debe devolver 0 filas.
+with taken as (
+  select lr.employee_id, extract(year from lr.start_date)::integer as period, sum(bd.days)::integer as days
+  from public.leave_requests lr
+  join public.leave_types lt on lt.id = lr.leave_type_id and lt.code = 'vacaciones'
+  cross join lateral (
+    select count(*) as days from generate_series(lr.start_date, lr.end_date, interval '1 day') d where extract(isodow from d) < 6
+  ) bd
+  where lr.status = 'approved' and lr.deleted_at is null
+  group by 1, 2
+)
+select coalesce(vb.employee_id, t.employee_id) as employee_id, coalesce(vb.period, t.period) as period,
+  vb.taken_days as saldo_taken_days, coalesce(t.days, 0) as dias_aprobados
+from public.vacation_balances vb
+full join taken t on t.employee_id = vb.employee_id and t.period = vb.period
+where coalesce(vb.taken_days, -1) <> coalesce(t.days, 0);
+
+-- V3. Solicitudes por estado (deben aparecer los 6 estados).
+-- select status, count(*) from public.leave_requests where reason like '[DEMO]%' group by status order by status;
+
+-- V4. Colaboradores por departamento y jefatura.
+-- select d.name, count(e.*) as colaboradores, max(m.full_name) filter (where m.id is not null) as alguna_jefatura
+-- from public.employees e join public.departments d on d.id = e.department_id
+-- left join public.employees m on m.id = e.manager_employee_id
+-- where e.employee_code like 'DEMO-%' group by d.name order by d.name;
+
+-- V5. Quién está ausente hoy (vacaciones/permisos aprobados e incapacidades).
+-- select e.employee_code, e.full_name, 'permiso' as motivo from public.leave_requests lr join public.employees e on e.id = lr.employee_id
+-- where lr.status = 'approved' and (now() at time zone 'America/Costa_Rica')::date between lr.start_date and lr.end_date
+-- union all
+-- select e.employee_code, e.full_name, 'incapacidad ' || sl.type from public.sick_leaves sl join public.employees e on e.id = sl.employee_id
+-- where (now() at time zone 'America/Costa_Rica')::date between sl.start_date and sl.end_date order by 1;
+
+-- V6. Usuarios de prueba vinculados.
+-- select u.email, e.employee_code, e.full_name from auth.users u join public.employees e on e.profile_id = u.id
+-- where u.email like 'rls.%@test.invalid' order by u.email;

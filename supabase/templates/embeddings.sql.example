@@ -1,0 +1,19 @@
+-- NOT A MIGRATION. Execute only after selecting an embedding model and its exact dimension.
+-- Replace <dimension> with the documented model output dimension, then review in staging.
+-- create extension if not exists vector;
+--
+-- create table public.chunk_embeddings (
+--   chunk_id uuid primary key references public.document_chunks(id) on delete restrict,
+--   model_name text not null,
+--   embedding vector(<dimension>) not null,
+--   embedded_at timestamptz not null default now(),
+--   created_at timestamptz not null default now()
+-- );
+--
+-- create index chunk_embeddings_hnsw_idx
+--   on public.chunk_embeddings using hnsw (embedding vector_cosine_ops);
+--
+-- alter table public.chunk_embeddings enable row level security;
+-- create policy chunk_embeddings_internal_only on public.chunk_embeddings
+--   for all to authenticated using (public.has_permission('documents.manage'))
+--   with check (public.has_permission('documents.manage'));

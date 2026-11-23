@@ -5,12 +5,37 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test",
+    "test:rls-integration": "node scripts/run-rls-integration.mjs",
+    "lint": "eslint .",
+    "test:data-integration": "node scripts/run-data-agent-integration.mjs",
+    "eval:bank": "node scripts/eval-bank.mjs",
+    "smoke:providers": "node scripts/smoke-providers.mjs",
+    "drive:list": "node scripts/list-drive.mjs",
+    "configure:drive-env": "node scripts/configure-drive-env.mjs",
+    "ingest:drive": "node scripts/ingest-drive.mjs",
+    "calibrate:threshold": "node scripts/calibrate-threshold.mjs",
+    "sync:drive": "node scripts/sync-drive.mjs",
+    "embeddings:rebuild": "node scripts/rebuild-embeddings.mjs",
+    "report:daily": "node scripts/daily-report.mjs",
+    "test:report-integration": "node scripts/run-report-integration.mjs"
   },
   "dependencies": {
+    "@google/genai": "^3.6.1",
+    "@huggingface/transformers": "^4.3.2",
+    "@supabase/supabase-js": "^2.119.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
-    "helmet": "^8.1.0"
+    "googleapis": "^190.0.0",
+    "helmet": "^8.1.0",
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0"
   }
 }

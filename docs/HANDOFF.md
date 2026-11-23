@@ -52,6 +52,13 @@ Las consultas de hoy en `chat_query_logs` incluyen 2 corridas de la evaluación 
 - **Pendiente conocido.** El borrador "RLS integration fixture for RLS-TEST-EMP-B" (2099-01-15) se conserva porque lo usa el harness RLS. Solo lo ve `rls.employee.b`.
 - **Latencia real desde el navegador.** Se mide con `supabase/manual_checks/20261122_chat_latency_today_readonly.sql`. Hay que cambiar el correo y la hora de inicio para excluir las corridas de `eval:bank`.
 
+**Métrica "con cita" y sensibilidad al proveedor (2026-11-22):**
+- "Con cita" se calcula ahora sobre las respuestas **respaldadas por documentos** (agente de políticas con estado `supported` o `partial`). Se excluyen las de "no encontré" (23 y 45), que no citan por diseño.
+- Corrida oficial: **28/28 (100 %)**. Ninguna respuesta respaldada sale sin cita.
+- Una corrida de control hacia las 00:00 UTC, con DeepSeek tardando ~3 s por llamada, dio 43/46, 87 % por debajo de 8 s y p90 de 8,4 s (`hoja_evaluacion_45_2026-11-22_deepseek_lento.md`).
+- **Causa:** el clasificador corta a los 3,5 s y cae al respaldo por reglas. Ese respaldo clasifica como fuera de alcance preguntas sin palabras clave de RRHH ("ascender"). Ocurrió en la 32 y la 39; la 37 se clasificó como política.
+- **Pendiente:** dar más margen o un reintento al clasificador y ampliar el vocabulario del respaldo. Hay que medirlo en horario pico.
+
 **Datos del chat:** las consultas de `chat_query_logs` **anteriores al 2026-11-22 son sintéticas** (`supabase/seeds/chat_logs_demo.sql.example`, `prompt_version = 'demo-seed'`, prefijo `[DEMO]`). **Desde el 2026-11-22 son reales** (chat y `npm run eval:bank -- --log`). Para borrar las sintéticas: `delete from public.chat_query_logs where prompt_version = 'demo-seed';` y luego `npm run report:daily -- --backfill=30`.
 
 Pruebas al cierre:

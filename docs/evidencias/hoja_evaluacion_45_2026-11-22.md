@@ -11,9 +11,18 @@
 | Indicador | Valor |
 |---|---|
 | Aciertos | 46/46 (100.0 %) |
-| Con cita (política y mixtas respondibles) | 28/29 (96.6 %) |
+| Con cita (respuestas respaldadas por documentos) | 28/28 (100.0 %) |
 | Latencia < 8 s | 46/46 (100.0 %) |
 | Latencia p50 / p90 | 3522 ms / 5037 ms |
+
+"Con cita" se calcula sobre las respuestas respaldadas por documentos, es decir, las del agente de políticas con estado `supported` o `partial`. Se excluyen:
+- las respuestas "no encontré la política" (23 y 45), que por diseño no citan y ofrecen escalar;
+- las respuestas negadas;
+- las fuera de alcance.
+
+Una respuesta respaldada sin cita contaría como error y aparecería marcada arriba. En esta corrida no hay ninguna.
+
+*Recalculado el 2026-11-22 a partir de esta misma corrida, con la base nueva. La versión anterior de la hoja decía 28/29 (96,6 %) porque contaba la 45 en la base. Ninguna respuesta cambió.*
 
 ## Preguntas 21, 22 y 23
 

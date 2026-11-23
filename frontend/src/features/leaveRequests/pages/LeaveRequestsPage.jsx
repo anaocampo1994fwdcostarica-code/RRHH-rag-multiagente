@@ -4,6 +4,7 @@ import { ApiError } from '../../../api/client.js'
 import { listLeaveRequests } from '../leaveRequestsApi.js'
 import { getLeaveRequestStatusLabel, leaveRequestStatuses, toLeaveRequestPresentation } from '../presentation.js'
 import { useLeaveTypeCatalog } from '../useLeaveTypeCatalog.js'
+import DatePicker from '../../../components/DatePicker.jsx'
 
 function LeaveRequestsPage() {
   const [filters, setFilters] = useState({ status: '', startDateFrom: '', startDateTo: '', page: 1, limit: 20 })
@@ -27,7 +28,7 @@ function LeaveRequestsPage() {
   return <div className="mx-auto max-w-7xl">
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><h1 className="text-2xl font-semibold tracking-tight text-slate-900">Solicitudes de permisos</h1><p className="mt-2 text-sm leading-6 text-slate-600">Consulta las solicitudes visibles para tu sesión y crea borradores propios.</p></div><Link to="/solicitudes/nueva" className="rounded-lg bg-[#0f4c5c] px-4 py-2 text-center text-sm font-medium text-white">Nueva solicitud</Link></div>
-      <div className="mt-6 grid gap-4 sm:grid-cols-3"><label><span className="mb-1 block text-sm font-medium text-slate-700">Estado</span><select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">{leaveRequestStatuses.map((status) => <option key={status} value={status}>{status ? getLeaveRequestStatusLabel(status) : 'Todos'}</option>)}</select></label><label><span className="mb-1 block text-sm font-medium text-slate-700">Desde</span><input type="date" value={filters.startDateFrom} onChange={(event) => updateFilter('startDateFrom', event.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label><label><span className="mb-1 block text-sm font-medium text-slate-700">Hasta</span><input type="date" value={filters.startDateTo} onChange={(event) => updateFilter('startDateTo', event.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label></div>
+      <div className="mt-6 grid gap-4 sm:grid-cols-3"><label><span className="mb-1 block text-sm font-medium text-slate-700">Estado</span><select value={filters.status} onChange={(event) => updateFilter('status', event.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">{leaveRequestStatuses.map((status) => <option key={status} value={status}>{status ? getLeaveRequestStatusLabel(status) : 'Todos'}</option>)}</select></label><DatePicker id="requests-from" label="Desde" value={filters.startDateFrom} onChange={(value) => updateFilter('startDateFrom', value)} /><DatePicker id="requests-to" label="Hasta" value={filters.startDateTo} min={filters.startDateFrom || undefined} onChange={(value) => updateFilter('startDateTo', value)} /></div>
     </section>
     {state === 'loading' && <p className="mt-6 rounded-lg bg-white p-6 text-sm text-slate-500">Cargando solicitudes…</p>}
     {state === 'error' && <p className="mt-6 rounded-lg border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800">{error}</p>}

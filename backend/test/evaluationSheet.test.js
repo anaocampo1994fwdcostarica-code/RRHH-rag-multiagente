@@ -35,13 +35,18 @@ test('21/22 must be denied without agent, 23 must not invent, 25 as collaborator
 
 test('summary counts accuracy, citations, latency and p90; CSV has a header and quotes values', () => {
   const rows = [
-    { ...row(1, 'policy', { intent: 'policy', evidenceStatus: 'supported', answer: '15', citations: [{ documentCode: 'POL-RH-01' }] }), latencyMs: 2000 },
-    { ...row(3, 'policy', { intent: 'policy', evidenceStatus: 'insufficient', answer: 'no "sé"' }), latencyMs: 9000 },
+    { ...row(1, 'policy', { intent: 'policy', agent: 'policy_rag', evidenceStatus: 'supported', answer: '15', citations: [{ documentCode: 'POL-RH-01' }] }), latencyMs: 2000 },
+    { ...row(3, 'policy', { intent: 'policy', agent: 'policy_rag', evidenceStatus: 'insufficient', answer: 'no "sé"' }), latencyMs: 9000 },
+    { ...row(4, 'policy', { intent: 'policy', agent: 'policy_rag', evidenceStatus: 'supported', answer: '15 días' }), latencyMs: 1000 },
   ].map((r) => ({ ...r, role: 'colaborador', grade: gradeRow(r) }))
   const summary = summarize(rows)
   assert.equal(summary.correct, 1)
+  // La 3 (no encontrado) no entra en la base; la 4 respaldada sin cita sí y queda señalada.
   assert.equal(summary.cited, 1)
-  assert.equal(summary.fast, 1)
+  assert.equal(summary.answerable, 2)
+  assert.deepEqual(summary.uncited, [4])
+  assert.deepEqual(summary.notFound, [3])
+  assert.equal(summary.fast, 2)
   assert.equal(summary.p90, 9000)
   const csv = toCsv(rows)
   assert.match(csv, /número.*criterio/)

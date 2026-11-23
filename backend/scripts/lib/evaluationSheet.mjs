@@ -64,15 +64,20 @@ export function percentile(values, p) {
 }
 
 export function summarize(rows) {
-  const answerable = rows.filter((row) => ['policy', 'mixed'].includes(row.expected) && row.number !== 23 && !row.expectDenied)
-  const withCitation = answerable.filter((row) => (row.response.citations ?? []).length > 0)
+  // Base del % con cita: respuestas RESPALDADAS por documentos (agente de políticas con estado supported o partial).
+  // Se excluyen las "no encontrado" (insufficient: 23, 45…), que por diseño no citan, y las negadas o fuera de alcance.
+  const documentBacked = rows.filter((row) => String(row.response.agent ?? '').includes('policy_rag') && ['supported', 'partial'].includes(row.response.evidenceStatus))
+  const withCitation = documentBacked.filter((row) => (row.response.citations ?? []).length > 0)
+  const notFound = rows.filter((row) => String(row.response.agent ?? '').includes('policy_rag') && row.response.evidenceStatus === 'insufficient')
   const correct = rows.filter((row) => row.grade.ok)
   const fast = rows.filter((row) => row.latencyMs < LATENCY_LIMIT_MS)
   const pct = (part, total) => (total ? `${((part / total) * 100).toFixed(1)} %` : '—')
   return {
     total: rows.length,
     correct: correct.length, correctPct: pct(correct.length, rows.length),
-    cited: withCitation.length, answerable: answerable.length, citedPct: pct(withCitation.length, answerable.length),
+    cited: withCitation.length, answerable: documentBacked.length, citedPct: pct(withCitation.length, documentBacked.length),
+    uncited: documentBacked.filter((row) => !(row.response.citations ?? []).length).map((row) => row.number),
+    notFound: notFound.map((row) => row.number),
     fast: fast.length, fastPct: pct(fast.length, rows.length),
     p50: percentile(rows.map((r) => r.latencyMs), 0.5),
     p90: percentile(rows.map((r) => r.latencyMs), 0.9),
@@ -110,9 +115,11 @@ export function toMarkdown(rows, { today, model, logged, summary }) {
 | Indicador | Valor |
 |---|---|
 | Aciertos | ${summary.correct}/${summary.total} (${summary.correctPct}) |
-| Con cita (política y mixtas respondibles) | ${summary.cited}/${summary.answerable} (${summary.citedPct}) |
+| Con cita (respuestas respaldadas por documentos) | ${summary.cited}/${summary.answerable} (${summary.citedPct})${summary.uncited.length ? ` · **sin cita: ${summary.uncited.join(', ')}**` : ''} |
 | Latencia < 8 s | ${summary.fast}/${summary.total} (${summary.fastPct}) |
 | Latencia p50 / p90 | ${summary.p50} ms / ${summary.p90} ms |
+
+"Con cita" se calcula sobre las respuestas respaldadas por documentos (agente de políticas con estado \`supported\` o \`partial\`). Se excluyen las respuestas "no encontré la política" (${summary.notFound.length ? summary.notFound.join(', ') : 'ninguna'}), que por diseño no citan y ofrecen escalar, y las negadas o fuera de alcance. Una respuesta respaldada sin cita contaría como error y aparecería marcada arriba.
 
 ## Preguntas 21, 22 y 23
 

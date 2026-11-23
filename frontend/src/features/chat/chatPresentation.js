@@ -29,11 +29,11 @@ export function citationAnchorId(messageId, number) {
   return `cita-${messageId}-${number}`
 }
 
-/** Los enlaces del markdown solo se permiten con https:. */
+/** Los enlaces del markdown solo se permiten con http(s) o mailto. */
 export function isSafeMarkdownHref(value) {
   if (typeof value !== 'string') return false
   try {
-    return new URL(value).protocol === 'https:'
+    return ['http:', 'https:', 'mailto:'].includes(new URL(value).protocol)
   } catch {
     return false
   }

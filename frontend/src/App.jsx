@@ -19,6 +19,7 @@ import { ErrorBlock, LoadingBlock } from './components/StatusBlocks.jsx'
 import { usePermissionState } from './features/employees/usePermission.js'
 import DashboardPage from './pages/DashboardPage.jsx'
 import NotFoundPage from './pages/NotFoundPage.jsx'
+import PermissionsMatrixPage from './features/permissions/PermissionsMatrixPage.jsx'
 
 const pageMetadata = {
   '/dashboard': { title: 'Dashboard', subtitle: 'Reporte diario de Recursos Humanos' },
@@ -29,6 +30,7 @@ const pageMetadata = {
   '/solicitudes/nueva': { title: 'Nueva solicitud', subtitle: 'Crea un borrador de permiso propio' },
   '/gestion-solicitudes': { title: 'Gestión de solicitudes', subtitle: 'Bandeja administrativa autorizada' },
   '/documentos': { title: 'Documentos', subtitle: 'Catálogo documental y sincronización con Drive' },
+  '/permisos': { title: 'Matriz de permisos', subtitle: 'Roles y permisos de acceso del portal' },
 }
 
 function AppLayout() {
@@ -51,7 +53,7 @@ function HomeRedirect() {
 }
 
 function App() {
-  return <AuthProvider><BrowserRouter><Routes><Route path="ingresar" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} /><Route element={<AppLayout />}><Route index element={<HomeRedirect />} /><Route path="dashboard" element={<DashboardPage />} /><Route path="reportes" element={<ReportsPage />} /><Route path="chat" element={<ChatPage />} /><Route path="politicas" element={<PoliciesPage />} /><Route path="politicas/:id" element={<PolicyDetailPage />} /><Route path="empleados" element={<EmployeesPage />} /><Route path="empleados/:id" element={<EmployeeDetailPage />} /><Route path="solicitudes" element={<LeaveRequestsPage />} /><Route path="solicitudes/nueva" element={<NewLeaveRequestPage />} /><Route path="solicitudes/:id" element={<LeaveRequestDetailPage />} /><Route path="gestion-solicitudes" element={<AdminLeaveRequestsPage />} /><Route path="gestion-solicitudes/:id" element={<AdminLeaveRequestDetailPage />} /><Route path="documentos" element={<DocumentsPage />} /><Route path="gestion-documentos" element={<Navigate to="/documentos" replace />} /><Route path="*" element={<NotFoundPage />} /></Route></Routes></BrowserRouter></AuthProvider>
+  return <AuthProvider><BrowserRouter><Routes><Route path="ingresar" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} /><Route element={<AppLayout />}><Route index element={<HomeRedirect />} /><Route path="dashboard" element={<DashboardPage />} /><Route path="reportes" element={<ReportsPage />} /><Route path="chat" element={<ChatPage />} /><Route path="politicas" element={<PoliciesPage />} /><Route path="politicas/:id" element={<PolicyDetailPage />} /><Route path="empleados" element={<EmployeesPage />} /><Route path="empleados/:id" element={<EmployeeDetailPage />} /><Route path="solicitudes" element={<LeaveRequestsPage />} /><Route path="solicitudes/nueva" element={<NewLeaveRequestPage />} /><Route path="solicitudes/:id" element={<LeaveRequestDetailPage />} /><Route path="gestion-solicitudes" element={<AdminLeaveRequestsPage />} /><Route path="gestion-solicitudes/:id" element={<AdminLeaveRequestDetailPage />} /><Route path="documentos" element={<DocumentsPage />} /><Route path="permisos" element={<PermissionsMatrixPage />} /><Route path="gestion-documentos" element={<Navigate to="/documentos" replace />} /><Route path="*" element={<NotFoundPage />} /></Route></Routes></BrowserRouter></AuthProvider>
 }
 
 export default App

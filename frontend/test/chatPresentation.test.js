@@ -13,9 +13,10 @@ test('maps evidence status to Spanish labels', () => {
   assert.equal(getEvidenceLabel('weird'), 'Servicio no disponible')
 })
 
-test('markdown links must be https', () => {
+test('markdown links allow http, https and mailto but reject javascript', () => {
   assert.equal(isSafeMarkdownHref('https://example.com'), true)
-  assert.equal(isSafeMarkdownHref('http://example.com'), false)
+  assert.equal(isSafeMarkdownHref('http://example.com'), true)
+  assert.equal(isSafeMarkdownHref('mailto:security@example.com'), true)
   assert.equal(isSafeMarkdownHref('javascript:alert(1)'), false)
 })
 

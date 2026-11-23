@@ -22,6 +22,11 @@ function getSafeErrorMessage(status, payload) {
   return 'No fue posible completar la solicitud.'
 }
 
+function getCookie(name) {
+  if (typeof document === 'undefined') return undefined
+  return document.cookie.split('; ').find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1)
+}
+
 export function createApiClient({ baseUrl = getApiBaseUrl(), fetchImpl = fetch, getToken = getAccessToken } = {}) {
   async function request(path, { method = 'GET', body } = {}) {
     const token = await getToken()
@@ -29,7 +34,7 @@ export function createApiClient({ baseUrl = getApiBaseUrl(), fetchImpl = fetch, 
 
     const response = await fetchImpl(`${baseUrl}${path}`, {
       method,
-      headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...(['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && getCookie('csrf') ? { 'X-CSRF-Token': getCookie('csrf') } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     })
     let payload

@@ -37,6 +37,7 @@ export const DEFAULT_SIMILARITY_THRESHOLDS = Object.freeze({ openai: 0.45, local
 export const env = {
   port: Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 3001,
   frontendUrl: process.env.FRONTEND_URL ?? 'http://localhost:5173',
+  corsOrigins: (process.env.CORS_ORIGINS ?? process.env.FRONTEND_URL ?? 'http://localhost:5173').split(',').map((origin) => origin.trim()).filter(Boolean),
   nodeEnv: process.env.NODE_ENV ?? 'development',
   supabaseUrl: optionalValue('SUPABASE_URL'),
   supabasePublishableKey: optionalValue('SUPABASE_PUBLISHABLE_KEY'),

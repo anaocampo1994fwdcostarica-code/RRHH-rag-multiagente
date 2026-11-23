@@ -116,6 +116,7 @@ test('sync incremental: procesa el último cambio por archivo, detecta renombrad
     ],
     async listChanges() { return this.pages.shift() },
     async listFolderIds() { return new Map([['root', '']]) },
+    async listFiles() { return [] },
   }
   const transaction = async (_auth, callback) => callback({ query: async () => ({ rows: [
     { external_id: 'a', title: 'POL-01 nombre anterior', document_status: 'published' },
@@ -136,6 +137,7 @@ test('sync incremental: si un documento falla, el token NO avanza para reintenta
   const drive = {
     async listChanges() { return { newStartPageToken: 't9', changes: [{ fileId: 'a', file: { id: 'a', name: 'POL-01', mimeType: DOC, parents: ['root'] } }] } },
     async listFolderIds() { return new Map([['root', '']]) },
+    async listFiles() { return [] },
   }
   const transaction = async (_auth, callback) => callback({ query: async () => ({ rows: [] }) })
   const report = await createDriveSync({ drive, ingestion, transaction, folderId: 'root' }).incremental({ userId: 'hr' })

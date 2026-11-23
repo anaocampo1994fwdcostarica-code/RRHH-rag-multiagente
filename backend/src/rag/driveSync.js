@@ -23,6 +23,9 @@ async function ingestSafely(ingestion, auth, file, known, note) {
     const result = await ingestion.ingestFile(auth, file, { note })
     const previous = known.get(file.id)
     if (result.outcome === 'unchanged' && previous && previous.title !== file.name) return { ...result, outcome: 'renamed', previousName: previous.title }
+    if (previous?.document_status === 'archived' && ['created', 'updated', 'unchanged', 'reembedded'].includes(result.outcome)) {
+      return { ...result, outcome: 'reopened', reason: 'Volvió a la carpeta' }
+    }
     return result
   } catch (error) {
     // permanent: error de contenido que se repetirá igual (sin código, sin texto); no bloquea el token.
@@ -130,15 +133,27 @@ export function createDriveSync({ drive, ingestion, transaction, folderId, allow
 
       const runId = await ingestion.startRun(auth, 'incremental', state.start_page_token)
       const results = []
+      const processed = new Set()
       try {
         const folders = changes.size ? await drive.listFolderIds() : new Map()
         for (const change of changes.values()) {
           const decision = classifyChange(change, folders, known)
-          if (decision.action === 'ingest') results.push(await ingestSafely(ingestion, auth, { ...change.file, folderPath: decision.folderPath }, known, 'Sincronización diaria (changes.list)'))
+          if (decision.action === 'ingest') {
+            results.push(await ingestSafely(ingestion, auth, { ...change.file, folderPath: decision.folderPath }, known, 'Sincronización diaria (changes.list)'))
+            processed.add(change.fileId)
+          }
           if (decision.action === 'archive') {
             const result = await archiveSafely(ingestion, auth, known.get(change.fileId), decision.reason)
             if (result) results.push(result)
           }
+        }
+        // Drive no siempre publica en changes.list que un archivo archivado vuelve a ser visible.
+        // La lista recursiva es una comprobación de presencia; no cambia la regla de archivar.
+        const presentFiles = await drive.listFiles()
+        for (const file of presentFiles) {
+          const document = known.get(file.id)
+          if (processed.has(file.id) || (document && document.document_status !== 'archived') || !supportedMimeTypes.has(file.mimeType)) continue
+          results.push(await ingestSafely(ingestion, auth, file, known, 'Reconciliación incremental de presencia en Drive'))
         }
         return { kind: 'incremental', changesSeen: changes.size, ...(await finish(auth, runId, results, newStartPageToken)) }
       } catch (error) {

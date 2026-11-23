@@ -4,4 +4,4 @@
 // Si no hay token guardado, hace la ingesta completa.
 import { runDriveSync } from './lib/runDriveSync.mjs'
 
-await runDriveSync('incremental')
+await runDriveSync(process.argv.includes('--full') ? 'full' : 'incremental')

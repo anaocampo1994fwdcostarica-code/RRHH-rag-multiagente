@@ -36,6 +36,7 @@ test('un error permanente (sin código) se reporta pero no bloquea el token', as
   const drive = {
     async listChanges() { return { newStartPageToken: 't5', changes: [{ fileId: 'a', file: { id: 'a', name: 'X', mimeType: DOC, parents: ['root'] } }] } },
     async listFolderIds() { return new Map([['root', '']]) },
+    async listFiles() { return [] },
   }
   const report = await createDriveSync({ drive, ingestion, transaction: rowsTransaction([{ external_id: 'a', title: 'X', document_status: 'published' }]), folderId: 'root' }).incremental({ userId: 'hr' })
   assert.equal(report.failed, true)
@@ -58,6 +59,19 @@ test('un cambio de carpeta o un elemento desconocido eliminado dispara la reconc
   const report = await createDriveSync({ drive, ingestion, transaction: rowsTransaction([]), folderId: 'root' }).incremental({ userId: 'hr' })
   assert.equal(report.kind, 'full')
   assert.deepEqual(ingestion.calls.saved, [{ folderId: 'root', token: 'full-token' }])
+})
+
+test('un archivo archivado presente en la lista recursiva se reabre aunque changes.list venga vacío', async () => {
+  const ingestion = fakeIngestion({ async ingestFile(_auth, presentFile) { ingestion.calls.ingested.push(presentFile.id); return { externalId: presentFile.id, name: presentFile.name, outcome: 'unchanged' } } })
+  const drive = {
+    async listChanges() { return { newStartPageToken: 't-presence', changes: [] } },
+    async listFiles() { return [{ id: 'avi-10', name: 'AVI-RH-10', mimeType: DOC, parents: ['root'] }] },
+  }
+  const report = await createDriveSync({ drive, ingestion, transaction: rowsTransaction([{ external_id: 'avi-10', title: 'AVI-RH-10', document_status: 'archived' }]), folderId: 'root' }).incremental({ userId: 'hr' })
+  assert.equal(report.changesSeen, 0)
+  assert.deepEqual(ingestion.calls.ingested, ['avi-10'])
+  assert.equal(report.results[0].outcome, 'reopened')
+  assert.equal(report.results[0].reason, 'Volvió a la carpeta')
 })
 
 test('la ingesta completa no archiva en masa sin confirmación explícita', async () => {

@@ -17,7 +17,7 @@ export async function runDriveSync(kind) {
     if (report.results.length) {
       console.table(report.results.map(({ name, previousName, code, version, chunks, outcome, status, reason, error }) => ({
         documento: previousName ? `${previousName} → ${name}` : name, codigo: code ?? '', version: version ?? '', fragmentos: chunks ?? '',
-        resultado: outcome, estado: status ?? (outcome === 'archived' ? 'archived' : ''), detalle: error ?? reason ?? '',
+        resultado: outcome, estado: status ?? (['archived', 'reopened'].includes(outcome) ? outcome : ''), detalle: error ?? reason ?? '',
       })))
     } else {
       console.log('Sin cambios en la carpeta.')

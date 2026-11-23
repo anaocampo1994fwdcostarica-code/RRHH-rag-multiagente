@@ -185,8 +185,8 @@ Aplicadas a mano (no figuran en `supabase_migrations.schema_migrations`). Verifi
 ## 5. Pendientes
 
 **Sesión 5**
-1. **Probar en el navegador** con `rls.hr` y `rls.employee.a` (lista de verificación en el chat de la sesión 5). La interfaz todavía no se ha probado en un navegador.
-2. Correr `npm run eval:bank -- --log` para tener consultas reales desde hoy.
+1. **Prueba de navegador completada por el usuario** con `rls.employee.a` y `rls.hr`. Falta conservar las capturas de aceptación en `docs/evidencias/capturas/` según su README.
+2. Ejecutar `npm run eval:bank -- --bank all --log` con acceso a Supabase/DeepSeek; la corrida del 2026-11-22 quedó bloqueada por `connect EACCES` al puerto 5432. El paquete reproducible está en `docs/evidencias/paquete_evidencia_2026-11-22.md`.
 3. Hallazgos menores de la revisión sin corregir:
    - `p_generated_by` lo aporta `rrhh_api`; es el borde de confianza, igual que en `log_chat_query`.
    - Las tareas corren con la sesión del usuario (sin principal ni `-WakeToRun`). `StartWhenAvailable` solo recupera el día actual: si el equipo estuvo apagado varios días, correr `--backfill=N`.

@@ -1,5 +1,7 @@
 # Capturas de aceptación del Mini Proyecto #2
 
+Prueba real de Drive: [capturas/drive/](drive/) y [documento de evidencia](../prueba_sync_drive_2026-11-22.md).
+
 Guarda aquí las capturas tomadas con usuarios de prueba. No incluyas correos completos, tokens, IDs de Supabase, claves ni datos personales innecesarios.
 
 ## Colaborador (`rls.employee.a`)

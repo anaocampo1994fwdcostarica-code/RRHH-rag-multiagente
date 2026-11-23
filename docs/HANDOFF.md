@@ -59,10 +59,48 @@ Las consultas de hoy en `chat_query_logs` incluyen 2 corridas de la evaluación 
 - **Causa:** el clasificador corta a los 3,5 s y cae al respaldo por reglas. Ese respaldo clasifica como fuera de alcance preguntas sin palabras clave de RRHH ("ascender"). Ocurrió en la 32 y la 39; la 37 se clasificó como política.
 - **Pendiente:** dar más margen o un reintento al clasificador y ampliar el vocabulario del respaldo. Hay que medirlo en horario pico.
 
+**Riesgo de latencia del proveedor (2026-11-22, noche):**
+
+Cambios:
+- **Respaldo del clasificador.** Si el LLM no responde a tiempo y la capa de seguridad no bloqueó la pregunta, el respaldo:
+  - reconoce un dato propio (incluye giros como "¿me aprobaron…?" o "¿tengo alguna … registrada?");
+  - solo clasifica como `out_of_scope` lo inequívoco (películas, deportes, recetas…);
+  - envía todo lo demás al agente de políticas, que dice "no encontré" y ofrece escalar.
+  - Se amplió el vocabulario de RRHH: ascenso, carrera, evaluación, capacitación, beca, despido, renuncia, liquidación, etc.
+- **Búsqueda especulativa.** El embedding y la búsqueda vectorial de la pregunta original corren en paralelo con la clasificación, solo sin historial y si la capa de seguridad no la niega.
+  - Se reutilizan para política y mixtas.
+  - Si no encontraron nada y el clasificador reformuló la consulta, se busca de nuevo con la reformulación.
+  - Si la intención es otra, se descartan sin enviar ni registrar nada.
+- **Presupuesto de 7 s por consulta** (`CHAT_BUDGET_MS`). El clasificador recibe el tiempo restante menos 2,5 s de reserva; la selección de herramienta y la redacción, el tiempo restante.
+  - Si se agota, o el proveedor falla al redactar, se responde con la sección más relacionada y su cita ("No alcancé a redactar la respuesta…", estado `partial`) y se ofrece escalar.
+  - Nunca se devuelve un error genérico.
+- **Pruebas** (`backend/test/latencyBudget.test.js`, tiempo real):
+  - Con un LLM de 3 s por llamada, la 32, la 37 y la 39 se clasifican bien.
+  - Con un LLM que no responde, la 32 cae en políticas con cita y la 37 y la 39 en datos.
+  - La 21, la 22 y la 24 siguen igual en ambos casos.
+  - Todas las consultas terminan dentro del presupuesto.
+
+Corridas de `--bank all --log` (las hojas están en `docs/evidencias/hoja_evaluacion_45_2026-11-22_presupuesto_N.md/.csv`):
+
+| Corrida | Hora (UTC) | Código | Aciertos | Con cita | < 8 s | p90 | Fallas |
+|---|---|---|---|---|---|---|---|
+| 1 | 00:33 | especulativa sin reintento | 44/46 | 100 % | 100 % | 3,8 s | 28 y 32: la pregunta original no supera el umbral → "no encontré" |
+| 2 | 01:05 | ídem | 43/46 | 100 % | 97,8 % | 5,0 s | 1: error genérico (plazo interno de DeepSeek); 28 y 32 como en la 1 |
+| 3 | 01:09 | con reintento y sin error genérico | 43/46 | 100 % | **100 %** | 4,1 s | 1 y 6: presupuesto agotado → sección con cita (`partial`); 28 |
+| 4 | 01:12 | ídem | 43/46 | 100 % | **100 %** | 4,6 s | 1 y 5: presupuesto agotado → `partial`; 28 |
+
+Las corridas 1 y 2 encontraron los dos defectos que se corrigieron antes de la 3: la falta de reintento con la reformulación y el error genérico ante el plazo del proveedor. En la 3 y la 4 todas las consultas responden en menos de 8 s.
+
+Las fallas restantes son de dos tipos:
+- **Llamadas lentas del proveedor** (unos 7–7,9 s de extremo a extremo) que el presupuesto corta. Se entrega la sección correcta con su cita, pero sin redactar.
+- **La 28** ("Me caso en febrero…"). La corrida oficial de la tarde, sin presupuesto, daba 46/46.
+
+**Pendiente a decidir:** subir el presupuesto a ~7,5 s, que sigue dentro de los 8 s. Las respuestas lentas terminarían de redactarse, a costa de menos margen para la red. La 28 hay que investigarla con el detalle de la clasificación.
+
 **Datos del chat:** las consultas de `chat_query_logs` **anteriores al 2026-11-22 son sintéticas** (`supabase/seeds/chat_logs_demo.sql.example`, `prompt_version = 'demo-seed'`, prefijo `[DEMO]`). **Desde el 2026-11-22 son reales** (chat y `npm run eval:bank -- --log`). Para borrar las sintéticas: `delete from public.chat_query_logs where prompt_version = 'demo-seed';` y luego `npm run report:daily -- --backfill=30`.
 
 Pruebas al cierre:
-- Backend: `npm test` 244/244 y lint limpio.
+- Backend: `npm test` 249/249 y lint limpio.
 - Integración: `test:report-integration` 11/11.
 - Frontend: `npm test` 35/35, lint limpio y build correcto.
 

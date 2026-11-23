@@ -117,6 +117,7 @@ Copy-Item supabase\tests\rls\.env.example supabase\tests\rls\.env
 | `LLM_PROVIDER`, `EMBEDDINGS_PROVIDER` | `deepseek` y `local` (por defecto). Alternativas: `openai`, `gemini`. |
 | `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`, `DEEPSEEK_TIMEOUT_MS` | LLM. Modelo por defecto `deepseek-flash` y plazo de 6000 ms en el chat. |
 | `DEEPSEEK_THINKING` | *(opcional)* `enabled` activa el razonamiento del modelo. Por defecto está desactivado para cumplir la latencia. |
+| `CHAT_BUDGET_MS` | *(opcional)* Presupuesto total por consulta del chat (ms). Por defecto 7000. |
 | `RAG_SIMILARITY_THRESHOLD` | *(opcional)* Sobrescribe el umbral calibrado (0,828 para E5). |
 | `GOOGLE_DRIVE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_DRIVE_SERVICE_ACCOUNT_PRIVATE_KEY`, `GOOGLE_DRIVE_FOLDER_ID` | Cuenta de servicio y carpeta de Drive (ver §5). |
 | `ENABLE_DOCUMENT_SYNC` | `true` habilita el botón "Sincronizar ahora" (`POST /api/admin/documents/sync`). |
